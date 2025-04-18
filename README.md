@@ -24,7 +24,6 @@ emerge bubblewrap
 emerge genimage xz-utils
 ```
 # Needed to use crossdev
-```
 emerge app-eselect/eselect-repository
 eselect repository create crossdev
 ```
