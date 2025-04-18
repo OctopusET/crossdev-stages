@@ -32,7 +32,7 @@ ADDITIONAL_PACKAGES="
   dev-build/cmake
   dev-lang/rust
   net-wireless/iw
-  app-misc/screen
+  =app-misc/screen-5.0.0
   sys-process/htop
   net-analyzer/nmap
   app-portage/gentoolkit
@@ -68,9 +68,10 @@ setup_crossdev() {
     mkdir -p ${root}/etc/portage/package.use
     echo -e '>=virtual/libcrypt-2-r1 static-libs\n>=sys-libs/libxcrypt-4.4.36-r3 static-libs\n>=sys-apps/busybox-1.36.1-r3 -pam static' > ${root}/etc/portage/package.use/busybox
     echo "llvm-core/clang -extra" > ${root}/etc/portage/package.use/clang
-    echo "dev-lang/rust rustfmt" > ${root}/etc/portage/package.use/rust
+    echo "dev-lang/rust rustfmt -system-llvm" > ${root}/etc/portage/package.use/rust
     # The new meson-based build system tries to run run iconv tests
     echo "dev-vcs/git -iconv" > ${root}/etc/portage/package.use/git
+    echo "sys-kernel/dracut -dracut-cpio" > ${root}/etc/portage/package.use/dracut
 #    echo 'LDFLAGS="$LDFLAGS --sysroot=$EROOT"' > ${root}/etc/portage/env/override-sysroot
 #    echo "dev-lang/perl override-sysroot" >${root}/etc/portage/package.env/perl
     mkdir ${CROSSDEV_ROOT}/bin
