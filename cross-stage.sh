@@ -32,7 +32,7 @@ ADDITIONAL_PACKAGES="
   dev-build/cmake
   dev-lang/rust
   net-wireless/iw
-  app-misc/screen
+  =app-misc/screen-5.0.0
   sys-process/htop
   net-analyzer/nmap
   app-portage/gentoolkit
