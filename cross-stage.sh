@@ -27,17 +27,26 @@ ADDITIONAL_PACKAGES="
   app-admin/metalog
   net-misc/ntp
   dev-vcs/git
-  sys-devel/mold
   dev-lang/go
   dev-build/cmake
-  dev-lang/rust
   net-wireless/iw
   app-misc/screen
   sys-process/htop
   net-analyzer/nmap
   app-portage/gentoolkit
   app-portage/genlop
+  net-misc/curl
+  net-vpn/tailscale
+  dev-build/meson
+  dev-build/ninja
+  dev-debug/gdb
 "
+# mold
+# rust
+# tmux
+# sudo
+# btop
+# fastfetch
 # sys-apps/ripgrep tries to execute itself on install.
 
 # Building rust requires more manual changes
@@ -52,7 +61,7 @@ OUR_CHOST=riscv64-unknown-linux-gnu
 OUR_KEYWORD=riscv
 CROSSDEV_ROOT=/usr/${OUR_CHOST}
 CROSSDEV_MAKE_CONF=${CROSSDEV_ROOT}/etc/portage/make.conf
-OPTS="-j50 --load-average 100"
+OPTS="-j8 --load-average 16"
 export EMERGE_DEFAULT_OPTS="$OPTS"
 export MAKEOPTS="$OPTS"
 export FEATURES="parallel-install -merge-wait"
@@ -78,6 +87,8 @@ setup_crossdev() {
     echo "=cross-riscv64-unknown-linux-gnu/gcc-15*" > /etc/portage/package.mask/cross-riscv64-unknown-linux-gnu-fixup
     # The new meson-based build system tries to run run iconv tests
     echo "dev-vcs/git -iconv" > ${root}/etc/portage/package.use/git
+#    echo 'LDFLAGS="$LDFLAGS --sysroot=$EROOT"' > ${root}/etc/portage/env/override-sysroot
+#    echo "dev-lang/perl override-sysroot" >${root}/etc/portage/package.env/perl
     echo 'CFLAGS="-O3 -march=rv64gc -pipe"' > ${root}/etc/portage/env/rv64gc
     echo "dev-libs/libgcrypt rv64gc" >${root}/etc/portage/package.env/libgcrypt
     mkdir ${CROSSDEV_ROOT}/bin

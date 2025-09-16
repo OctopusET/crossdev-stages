@@ -117,7 +117,7 @@ generate_image() {
     pushd $BUILD_DIR
     rm -fR $BUILD_DIR/tmp
     genimage --config $BASE_DIR/genimage.cfg
-    xz -f -T0 -9 gentoo-linux-k1_dev-sdcard.img
+    #xz -f -T0 -9 gentoo-linux-k1_dev-sdcard.img
     popd
 }
 
