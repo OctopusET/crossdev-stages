@@ -30,25 +30,41 @@ fn list(ws: &Workspace) -> Result<()> {
 
 fn gc(ws: &Workspace, boards_root: &Utf8Path, force: bool) -> Result<()> {
     let entries = walk_store(ws);
+    let binpkgs_entries = walk_binpkgs(ws);
     let live = live_set(boards_root)?;
 
-    let mut unused = Vec::new();
-    for e in entries {
-        if !live.contains(&(e.chost.clone(), e.hash.clone())) {
-            unused.push(e);
-        }
-    }
+    let mut unused: Vec<StoreEntry> = entries
+        .into_iter()
+        .filter(|e| !live.contains(&(e.chost.clone(), e.hash.clone())))
+        .collect();
+    let mut unused_binpkgs: Vec<StoreEntry> = binpkgs_entries
+        .into_iter()
+        .filter(|e| !live.contains(&(e.chost.clone(), e.hash.clone())))
+        .collect();
 
-    if unused.is_empty() {
-        println!("No unused store entries.");
+    if unused.is_empty() && unused_binpkgs.is_empty() {
+        println!("No unused store or binpkg entries.");
         return Ok(());
     }
 
-    println!("{} unused store entr{}:", unused.len(), if unused.len() == 1 { "y" } else { "ies" });
-    for e in &unused {
-        let state = if e.complete { "complete" } else { "partial" };
-        let size = dir_size_human(&e.path);
-        println!("  {:<32} {:<14} {state:<8} {size}", e.chost, e.hash);
+    if !unused.is_empty() {
+        println!("{} unused store entr{}:", unused.len(), if unused.len() == 1 { "y" } else { "ies" });
+        for e in &unused {
+            let state = if e.complete { "complete" } else { "partial" };
+            let size = dir_size_human(&e.path);
+            println!("  {:<32} {:<14} {state:<8} {size}", e.chost, e.hash);
+        }
+    }
+    if !unused_binpkgs.is_empty() {
+        println!(
+            "{} unused binpkg cache{}:",
+            unused_binpkgs.len(),
+            if unused_binpkgs.len() == 1 { "" } else { "s" },
+        );
+        for e in &unused_binpkgs {
+            let size = dir_size_human(&e.path);
+            println!("  {:<32} {:<14} {size}", e.chost, e.hash);
+        }
     }
     if !force {
         println!("\nRe-run with --force to delete.");
@@ -56,7 +72,7 @@ fn gc(ws: &Workspace, boards_root: &Utf8Path, force: bool) -> Result<()> {
     }
 
     let mut removed = 0;
-    for e in &unused {
+    for e in unused.drain(..).chain(unused_binpkgs.drain(..)) {
         match crate::container::destroy_dir(&e.path, ws.base()) {
             Ok(()) => {
                 println!("Removed {}/{}", e.chost, e.hash);
@@ -65,7 +81,7 @@ fn gc(ws: &Workspace, boards_root: &Utf8Path, force: bool) -> Result<()> {
             Err(err) => println!("Failed to remove {}/{}: {err}", e.chost, e.hash),
         }
     }
-    println!("\nRemoved {removed}/{} entries.", unused.len());
+    println!("\nRemoved {removed} entr{}.", if removed == 1 { "y" } else { "ies" });
     Ok(())
 }
 
@@ -77,8 +93,18 @@ struct StoreEntry {
 }
 
 fn walk_store(ws: &Workspace) -> Vec<StoreEntry> {
-    let root = ws.store_dir();
-    let Ok(chost_iter) = std::fs::read_dir(&root) else { return vec![] };
+    walk_two_level(&ws.store_dir(), |path| path.join(".complete").exists())
+}
+
+fn walk_binpkgs(ws: &Workspace) -> Vec<StoreEntry> {
+    walk_two_level(&ws.binpkgs_dir(), |_| false)
+}
+
+fn walk_two_level(
+    root: &Utf8Path,
+    mark_complete: impl Fn(&Utf8Path) -> bool,
+) -> Vec<StoreEntry> {
+    let Ok(chost_iter) = std::fs::read_dir(root) else { return vec![] };
     let mut out = Vec::new();
     for chost_entry in chost_iter.flatten() {
         let Some(chost) = chost_entry.file_name().to_str().map(String::from) else { continue };
@@ -93,7 +119,7 @@ fn walk_store(ws: &Workspace) -> Vec<StoreEntry> {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            let complete = path.join(".complete").exists();
+            let complete = mark_complete(&path);
             out.push(StoreEntry { chost: chost.clone(), hash, complete, path });
         }
     }
