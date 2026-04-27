@@ -104,7 +104,8 @@ pub enum Commands {
 
     /// Compare a board's most recent build.lock.toml against upstream
     /// HEAD of each pinned source -- shows what would change on a fresh
-    /// build.  Read-only.
+    /// build.  Read-only by default; `--apply` re-runs the image build
+    /// for matching boards so the new commits actually land.
     Update {
         /// Board name; defaults to the most recent build's board.
         #[arg(long)]
@@ -112,6 +113,10 @@ pub enum Commands {
         /// Iterate every board with a usable lock.
         #[arg(long, conflicts_with = "board")]
         all: bool,
+        /// After the report, run `image build` for each matching board
+        /// so the new upstream commits actually get pulled in.
+        #[arg(long)]
+        apply: bool,
     },
 }
 

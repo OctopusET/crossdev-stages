@@ -62,8 +62,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Store(cmd) => {
             cli::store::run(&ws, &boards_root, cmd)?;
         }
-        Commands::Update { board, all } => {
-            cli::update::run(&ws, board.as_deref(), all)?;
+        Commands::Update { board, all, apply } => {
+            cli::update::run(&ws, &boards_root, board.as_deref(), all, apply, mirror, dry_run).await?;
         }
     }
 
