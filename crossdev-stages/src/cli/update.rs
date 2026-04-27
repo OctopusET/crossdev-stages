@@ -28,7 +28,15 @@ struct LockSource {
     kind: Option<String>,
 }
 
-pub fn run(ws: &Workspace, board: Option<&str>, all: bool) -> Result<()> {
+pub async fn run(
+    ws: &Workspace,
+    boards_root: &Utf8Path,
+    board: Option<&str>,
+    all: bool,
+    apply: bool,
+    mirror: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
     let lock_paths = if all {
         locate_all_locks(ws)
     } else {
@@ -39,16 +47,73 @@ pub fn run(ws: &Workspace, board: Option<&str>, all: bool) -> Result<()> {
         return Ok(());
     }
 
+    let mut boards_to_build = Vec::new();
     for (i, lock_path) in lock_paths.iter().enumerate() {
         if i > 0 {
             println!();
         }
-        check_lock(ws, lock_path)?;
+        let any_updatable = check_lock(ws, lock_path)?;
+        if apply && any_updatable {
+            if let Some(b) = board_of_lock(lock_path) {
+                boards_to_build.push(b);
+            }
+        }
+    }
+
+    if apply {
+        if boards_to_build.is_empty() {
+            println!("\nNothing to rebuild -- every source is up-to-date.");
+        } else {
+            println!(
+                "\nApplying updates for {} board(s): {}",
+                boards_to_build.len(),
+                boards_to_build.join(", ")
+            );
+            for b in &boards_to_build {
+                // Drop any incomplete (non-packed) build dir for this
+                // board so image::build creates a fresh one and
+                // default_checkout pulls the new commits.
+                drop_incomplete_builds(ws, b)?;
+                println!("\n=== Rebuilding {b} ===");
+                crate::cli::image::run_build(
+                    ws, boards_root, mirror, dry_run, b,
+                    None, None, None, false, &[],
+                )
+                .await?;
+            }
+        }
     }
     Ok(())
 }
 
-fn check_lock(ws: &Workspace, lock_path: &Utf8Path) -> Result<()> {
+fn board_of_lock(lock_path: &Utf8Path) -> Option<String> {
+    let dir = lock_path.parent()?;
+    std::fs::read_to_string(dir.join(".board"))
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn drop_incomplete_builds(ws: &Workspace, board_name: &str) -> Result<()> {
+    let builds = ws.list_builds()?;
+    for dir in builds {
+        let on_disk = std::fs::read_to_string(dir.join(".board"))
+            .ok()
+            .map(|s| s.trim().to_string());
+        if on_disk.as_deref() != Some(board_name) {
+            continue;
+        }
+        if !dir.join(".packed").exists() {
+            tracing::info!("Removing incomplete build: {dir}");
+            std::fs::remove_dir_all(&dir)?;
+        }
+    }
+    Ok(())
+}
+
+/// Returns true when at least one source is behind upstream (i.e. an
+/// `--apply` rebuild for this lock's board would actually pull in new
+/// commits).
+fn check_lock(ws: &Workspace, lock_path: &Utf8Path) -> Result<bool> {
     let body = std::fs::read_to_string(lock_path).map_err(|e| {
         crate::error::Error::CommandFailed {
             code: 1,
@@ -105,7 +170,7 @@ fn check_lock(ws: &Workspace, lock_path: &Utf8Path) -> Result<()> {
         "Summary: {behind} updatable, {clean} up-to-date, {errored} error{}",
         if errored == 1 { "" } else { "s" },
     );
-    Ok(())
+    Ok(behind > 0)
 }
 
 enum SourceState {
