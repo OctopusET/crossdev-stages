@@ -43,7 +43,17 @@ pub fn run(ws: &Workspace, boards_root: &Utf8Path, tsv: bool) -> Result<()> {
         for name in &boards {
             if let Ok(b) = board::load(boards_root, name) {
                 let tag = if b.testing { " [TESTING]" } else { "" };
-                println!("  {:<16} {:<10}{tag}", name, b.arch);
+                let chost = format!("{}-unknown-linux-gnu", b.arch);
+                let (_, hash) = crate::cflags::canonicalize(&b.effective_cflags());
+                let store_state = stores
+                    .iter()
+                    .find(|s| s.chost == chost && s.hash == hash)
+                    .map(|s| if s.complete { "ready" } else { "partial" })
+                    .unwrap_or("missing");
+                println!(
+                    "  {:<16} {:<10} {:<14} {}{tag}",
+                    name, b.arch, hash, store_state,
+                );
             }
         }
         if !stores.is_empty() {
@@ -74,7 +84,17 @@ pub fn run(ws: &Workspace, boards_root: &Utf8Path, tsv: bool) -> Result<()> {
         }
         for name in &boards {
             if let Ok(b) = board::load(boards_root, name) {
-                println!("board\t{}\t{}\t{}", name, b.arch, b.testing);
+                let chost = format!("{}-unknown-linux-gnu", b.arch);
+                let (_, hash) = crate::cflags::canonicalize(&b.effective_cflags());
+                let store_state = stores
+                    .iter()
+                    .find(|s| s.chost == chost && s.hash == hash)
+                    .map(|s| if s.complete { "ready" } else { "partial" })
+                    .unwrap_or("missing");
+                println!(
+                    "board\t{}\t{}\t{}\t{}\t{}",
+                    name, b.arch, b.testing, hash, store_state,
+                );
             }
         }
         for s in &stores {
