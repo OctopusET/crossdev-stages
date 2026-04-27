@@ -42,7 +42,11 @@ pub fn run(ws: &Workspace, boards_root: &Utf8Path, tsv: bool) -> Result<()> {
         println!("\nBoards ({}):", boards.len());
         for name in &boards {
             if let Ok(b) = board::load(boards_root, name) {
-                let tag = if b.testing { " [TESTING]" } else { "" };
+                let tags = if b.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", b.tags.join(","))
+                };
                 let chost = format!("{}-unknown-linux-gnu", b.arch);
                 let (_, hash) = crate::cflags::canonicalize(&b.effective_cflags());
                 let store_state = stores
@@ -51,7 +55,7 @@ pub fn run(ws: &Workspace, boards_root: &Utf8Path, tsv: bool) -> Result<()> {
                     .map(|s| if s.complete { "ready" } else { "partial" })
                     .unwrap_or("missing");
                 println!(
-                    "  {:<16} {:<10} {:<14} {}{tag}",
+                    "  {:<16} {:<10} {:<14} {}{tags}",
                     name, b.arch, hash, store_state,
                 );
             }
@@ -91,9 +95,10 @@ pub fn run(ws: &Workspace, boards_root: &Utf8Path, tsv: bool) -> Result<()> {
                     .find(|s| s.chost == chost && s.hash == hash)
                     .map(|s| if s.complete { "ready" } else { "partial" })
                     .unwrap_or("missing");
+                let tags = b.tags.join(",");
                 println!(
                     "board\t{}\t{}\t{}\t{}\t{}",
-                    name, b.arch, b.testing, hash, store_state,
+                    name, b.arch, hash, store_state, tags,
                 );
             }
         }
