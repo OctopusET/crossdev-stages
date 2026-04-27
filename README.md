@@ -125,6 +125,8 @@ Steps: `deps`, `checkout`, `bootloader`, `kernel`, `assemble`, `pack`
 | `OPENSBI_MAKE_FLAGS` | no | Extra opensbi make arguments |
 | `U_BOOT_MAKE_FLAGS` | no | Extra u-boot make arguments |
 | `COMPRESSION` | no | Image compression: `xz` (default), `gz`, `none` |
+| `TAGS` | no | Free-form labels (bash array, e.g. `TAGS=("testing" "wip")`) -- shown in `board list` and `status` |
+| `DESCRIPTION` | no | Free-form note shown in `board info` |
 
 ## Limitations
 
