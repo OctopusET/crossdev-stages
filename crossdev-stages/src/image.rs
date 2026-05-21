@@ -284,16 +284,32 @@ fn default_pack(runner: &SandboxRunner, board: &BoardConfig, build: &Build, boar
         "/scripts/genimage.cfg".to_string()
     };
 
-    let img_name = board
-        .image_name
-        .clone()
-        .unwrap_or_else(|| format!("gentoo-linux-{}_dev-sdcard.img", board.name));
+    let img_name = board.image_name.clone().unwrap_or_else(|| {
+        // Build dir name is "<board>-<timestamp>"; embed the timestamp in
+        // the image filename so distributed artifacts carry a build version
+        // (matches vendor naming like "Bianbu-Minimal-K3-v4.0-20260430165016").
+        let ts = build
+            .dir
+            .file_name()
+            .and_then(|n| n.strip_prefix(&format!("{}-", board.name)))
+            .unwrap_or("");
+        if ts.is_empty() {
+            format!("gentoo-linux-{}_dev-sdcard.img", board.name)
+        } else {
+            format!("gentoo-linux-{}_dev-sdcard-{}.img", board.name, ts)
+        }
+    });
 
     runner.run(&format!(
         "rm -rf /build/tmp && cd /build && \
          genimage --config {cfg_path} \
          --inputpath /build --outputpath /build --rootpath /build/gen"
     ))?;
+
+    // Emit sidecar manifest BEFORE compression (partition sources still in-place,
+    // sha256 covers the uncompressed image bytes which is what users will dd).
+    let host_cfg = board_cfg.exists().then_some(board_cfg.as_path());
+    crate::manifest::write(&build.dir, &board.name, &img_name, host_cfg)?;
 
     let compression = board.compression.as_deref().unwrap_or("xz");
     let final_name = match compression {

@@ -64,6 +64,28 @@ crossdev-stages image export --board k1 -o /tmp/
 crossdev-stages maint cleanup
 ```
 
+### Image manifest
+
+Every `image build` emits an `<image>.manifest.json` next to the
+compressed disk image, listing board, full-image sha256, and the
+partition table parsed from `genimage.cfg`:
+
+```json
+{
+  "board": "k230",
+  "image": "gentoo-linux-k230_dev-sdcard.img",
+  "sha256": "d1632bbf...",
+  "partitions": [
+    { "name": "uboot_spl_1", "offset": "1024K", "size": "512K",
+      "image": "u-boot/fn_u-boot-spl.bin", "sha256": "273f5662..." },
+    ...
+  ]
+}
+```
+
+Useful for verifying integrity and writing individual partitions to
+eMMC/SPI flash at known offsets without re-parsing `genimage.cfg`.
+
 ### Source cache
 
 Git repos are cached as bare repositories at `~/.cache/crossdev-stages/sources/`.
