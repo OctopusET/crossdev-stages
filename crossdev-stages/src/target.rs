@@ -1,5 +1,6 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::board::BoardConfig;
 use crate::container::{destroy_dir, unpack_tarball};
 use crate::error::{Error, Result};
 use crate::portage::{MakeConf, Portage};
@@ -40,17 +41,18 @@ impl Target {
     }
 
     /// Bootstrap the target: cross-emerge baselayout → packages.build → portage.
-    /// Idempotent via `.stage1` marker.
-    pub fn build_stage1(&self, sandbox: &Sandbox) -> Result<()> {
+    /// Idempotent via `.stage1` marker.  Pass `board` to bake board-specific
+    /// CFLAGS (e.g. `-O3 -march=rva23u64`) into the target make.conf so the
+    /// rebuilt @system uses them; `None` falls back to the arch baseline.
+    pub fn build_stage1(&self, sandbox: &Sandbox, board: Option<&BoardConfig>) -> Result<()> {
         if self.dir.join(".stage1").exists() {
             tracing::info!("Stage1 already built, skipping.");
             return Ok(());
         }
         let chost = format!("{}-unknown-linux-gnu", self.arch);
 
-        // Write target portage config and copy profile before first emerge.
         tracing::info!("Preparing target portage configuration…");
-        self.prepare_portage(sandbox, &chost)?;
+        self.prepare_portage(sandbox, &chost, board)?;
 
         let runner = sandbox.runner().with_target(&self.dir);
         tracing::info!("Logs at: {}", runner.log_dir());
@@ -82,9 +84,13 @@ impl Target {
         Ok(())
     }
 
-    /// Update the target stage (`@world` rebuild).
-    pub fn update(&self, sandbox: &Sandbox) -> Result<()> {
+    /// Update the target stage (`@world` rebuild).  Pass `board` to rewrite
+    /// target make.conf with board CFLAGS before the rebuild.
+    pub fn update(&self, sandbox: &Sandbox, board: Option<&BoardConfig>) -> Result<()> {
         let chost = format!("{}-unknown-linux-gnu", self.arch);
+        if board.is_some() {
+            self.prepare_portage(sandbox, &chost, board)?;
+        }
         let runner = sandbox.runner().with_target(&self.dir);
         let portage = Portage::new(&runner);
 
@@ -121,16 +127,26 @@ impl Target {
     }
 
     /// Write target portage make.conf and copy the profile link from the
-    /// crossdev prefix in the sandbox — mirrors `prepare_target_portage` in
-    /// the bash script.
-    fn prepare_portage(&self, sandbox: &Sandbox, chost: &str) -> Result<()> {
+    /// crossdev prefix in the sandbox.  Uses `board.effective_cflags()` when
+    /// provided so @system / @world rebuilds get board-specific CFLAGS
+    /// (e.g. RVA23) instead of the arch baseline.
+    fn prepare_portage(
+        &self,
+        sandbox: &Sandbox,
+        chost: &str,
+        board: Option<&BoardConfig>,
+    ) -> Result<()> {
         let portage_dir = self.dir.join("etc/portage");
         std::fs::create_dir_all(&portage_dir)?;
+
+        let cflags = board
+            .map(|b| b.effective_cflags())
+            .unwrap_or_else(|| default_cflags(&self.arch).to_string());
 
         MakeConf {
             arch: &self.arch,
             chost: Some(chost),
-            cflags: Some(default_cflags(&self.arch)),
+            cflags: Some(&cflags),
             mirror: None,
             binhost: None,
         }

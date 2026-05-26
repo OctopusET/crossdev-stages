@@ -165,9 +165,17 @@ pub enum TargetCmd {
     /// List all target stages.
     List,
     /// Bootstrap the target: cross-emerge baselayout → @system → portage.
-    Stage1,
+    /// Pass --board to use board CFLAGS (defaults to arch baseline).
+    Stage1 {
+        #[arg(long)]
+        board: Option<String>,
+    },
     /// Update the target (@world rebuild).
-    Update,
+    /// Pass --board to use board CFLAGS.
+    Update {
+        #[arg(long)]
+        board: Option<String>,
+    },
     /// Cross-emerge packages into the target.
     Install { packages: Vec<String> },
     /// Update ldconfig cache in the target.

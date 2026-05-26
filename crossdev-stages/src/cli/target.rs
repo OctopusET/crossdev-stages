@@ -59,7 +59,7 @@ pub async fn run(
             )
             .await?;
         }
-        TargetCmd::Stage1 => {
+        TargetCmd::Stage1 { board } => {
             let (tgt, sb) = ensure_target(
                 ws,
                 target_name.as_deref(),
@@ -69,9 +69,10 @@ pub async fn run(
                 mirror,
             )
             .await?;
-            tgt.build_stage1(&sb)?;
+            let board_cfg = load_optional_board(boards_root, board.as_deref())?;
+            tgt.build_stage1(&sb, board_cfg.as_ref())?;
         }
-        TargetCmd::Update => {
+        TargetCmd::Update { board } => {
             let (tgt, sb) = ensure_target(
                 ws,
                 target_name.as_deref(),
@@ -81,7 +82,8 @@ pub async fn run(
                 mirror,
             )
             .await?;
-            tgt.update(&sb)?;
+            let board_cfg = load_optional_board(boards_root, board.as_deref())?;
+            tgt.update(&sb, board_cfg.as_ref())?;
         }
         TargetCmd::Install { packages } => {
             let (tgt, sb) = ensure_target(
@@ -130,4 +132,14 @@ pub async fn run(
         }
     }
     Ok(())
+}
+
+fn load_optional_board(
+    boards_root: &Utf8Path,
+    name: Option<&str>,
+) -> Result<Option<crate::board::BoardConfig>> {
+    match name {
+        Some(n) => Ok(Some(crate::board::load(boards_root, n)?)),
+        None => Ok(None),
+    }
 }
