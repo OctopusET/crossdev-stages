@@ -216,8 +216,17 @@ pub enum ImageCmd {
         /// Specific steps to run (default: all steps from board.conf).
         steps: Vec<String>,
     },
-    /// Remove incomplete builds.
-    Prune,
+    /// Remove builds.  Default: only incomplete (no .packed marker).
+    /// `--all` wipes every build; `--board <name>` restricts to that board.
+    /// Uses the sandbox's user-namespace to delete root-owned files.
+    Prune {
+        /// Remove every build, not just incomplete ones.
+        #[arg(long)]
+        all: bool,
+        /// Restrict to a single board's builds.
+        #[arg(long)]
+        board: Option<String>,
+    },
     /// Export the final image file from a build.
     Export {
         /// Board name.
@@ -229,6 +238,10 @@ pub enum ImageCmd {
         /// Export all build artifacts, not just the final image.
         #[arg(long)]
         all: bool,
+        /// Bundle exported artifacts into a single .tar.xz next to outputs.
+        /// Only meaningful with --all.
+        #[arg(long)]
+        tar: bool,
     },
 }
 
