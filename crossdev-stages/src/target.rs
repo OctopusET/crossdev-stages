@@ -163,8 +163,14 @@ impl Target {
             cflags: Some(&cflags),
             mirror: None,
             binhost: None,
+            // target sysroot: booted /dev/shm is noexec, can't host portage builds.
+            sandbox_internal: false,
         }
         .write(&portage_dir)?;
+
+        // Pin gcc to board.gcc_version + llvm to the global slot.
+        let gcc_pin = board.and_then(|b| b.gcc_version.as_deref());
+        crate::portage::write_version_pins(&portage_dir, gcc_pin)?;
 
         // Copy the profile directory and make.profile symlink from the
         // crossdev prefix so the target stage uses the correct Gentoo profile.

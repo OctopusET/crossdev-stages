@@ -60,8 +60,13 @@ impl Sandbox {
             cflags: None,
             mirror,
             binhost: None,
+            sandbox_internal: true,
         }
         .write(&self.dir.join("etc/portage"))?;
+
+        // Pin llvm to the single supported slot.  No gcc pin in the host
+        // sandbox — stage3's default gcc is what runs portage itself.
+        crate::portage::write_version_pins(&self.dir.join("etc/portage"), None)?;
 
         if let Some(pd) = project_dir {
             install_overlay(&self.dir, pd)?;
@@ -273,6 +278,12 @@ impl Sandbox {
             &gcc_keyword_line,
         )?;
 
+        // Pin gcc + llvm in the cross prefix so future emerges (e.g.
+        // `target update`'s cross_emerge_crossdev sys-devel/gcc) don't
+        // silently jump to a different major.
+        let gcc_pin = ver_prefix.as_deref().or(board.gcc_version.as_deref());
+        crate::portage::write_version_pins(&crossdev_portage, gcc_pin)?;
+
         // Fix the split-usr layout created by crossdev.
         runner.run(&format!("mkdir -p /usr/{chost}/bin"))?;
         runner.run(&format!("merge-usr --root /usr/{chost}"))?;
@@ -337,6 +348,7 @@ impl Sandbox {
             cflags: Some(cflags),
             mirror: None,
             binhost: None,
+            sandbox_internal: true,
         }
         .write(portage_dir)?;
 
