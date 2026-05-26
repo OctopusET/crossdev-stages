@@ -1,14 +1,19 @@
+use camino::Utf8Path;
+
 use crate::{board, error, sandbox, stage, target};
 use crate::workspace::Workspace;
 use crate::error::Result;
 
 /// Ensure the sandbox exists, is prepared, and has crossdev for `arch`.
 /// Auto-creates a sandbox from the host arch stage3 if none is found.
+/// `project_dir` is used to install the `defaults/overlay/` ebuild overlay
+/// during prepare; pass `None` to skip (e.g. when no project context).
 pub async fn ensure_crossdev(
     ws: &Workspace,
     sandbox_name: Option<&str>,
     arch: &str,
     board_cfg: &board::BoardConfig,
+    project_dir: Option<&Utf8Path>,
     mirror: Option<&str>,
     gcc_version: Option<&str>,
 ) -> Result<sandbox::Sandbox> {
@@ -25,7 +30,7 @@ pub async fn ensure_crossdev(
         }
     };
     let sb = sandbox::Sandbox::open(sd)?;
-    sb.prepare(mirror)?;
+    sb.prepare(project_dir, mirror)?;
     sb.setup_crossdev(arch, board_cfg, gcc_version)?;
     Ok(sb)
 }
@@ -37,6 +42,7 @@ pub async fn ensure_target(
     target_name: Option<&str>,
     arch_override: Option<&str>,
     sandbox_name: Option<&str>,
+    project_dir: Option<&Utf8Path>,
     mirror: Option<&str>,
 ) -> Result<(target::Target, sandbox::Sandbox)> {
     let (tgt, resolved_arch) = match ws.resolve_target(target_name) {
@@ -67,6 +73,7 @@ pub async fn ensure_target(
         sandbox_name,
         &resolved_arch,
         &default_board_config(&resolved_arch),
+        project_dir,
         mirror,
         None,
     )

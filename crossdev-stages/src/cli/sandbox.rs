@@ -27,7 +27,7 @@ pub async fn run(
         SandboxCmd::Prepare { name } => {
             let dir = ws.resolve_sandbox(name.as_deref())?;
             let sb = sandbox::Sandbox::open(dir)?;
-            sb.prepare(mirror)?;
+            sb.prepare(boards_root.parent(), mirror)?;
         }
         SandboxCmd::Crossdev {
             arch,
@@ -45,6 +45,7 @@ pub async fn run(
                 name.as_deref(),
                 &arch,
                 &board_cfg,
+                boards_root.parent(),
                 mirror,
                 gcc_version.as_deref(),
             )

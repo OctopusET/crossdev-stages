@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use crate::{container, stage, target, workspace::Workspace};
 use crate::error::Result;
 use crate::cli::TargetCmd;
@@ -10,8 +10,10 @@ pub async fn run(
     sandbox: Option<String>,
     target_name: Option<String>,
     cmd: TargetCmd,
+    boards_root: &Utf8Path,
     mirror: Option<&str>,
 ) -> Result<()> {
+    let project_dir = boards_root.parent();
     match cmd {
         TargetCmd::List => {
             for t in target::list(ws)? {
@@ -51,6 +53,7 @@ pub async fn run(
                 sandbox.as_deref(),
                 &resolved_arch,
                 &default_board_config(&resolved_arch),
+                project_dir,
                 mirror,
                 None,
             )
@@ -62,6 +65,7 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                project_dir,
                 mirror,
             )
             .await?;
@@ -73,6 +77,7 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                project_dir,
                 mirror,
             )
             .await?;
@@ -84,6 +89,7 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                project_dir,
                 mirror,
             )
             .await?;
@@ -96,6 +102,7 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                project_dir,
                 mirror,
             )
             .await?;

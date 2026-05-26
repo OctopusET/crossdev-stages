@@ -45,8 +45,10 @@ impl Sandbox {
     }
 
     /// Configure portage and install host build dependencies.
-    /// Idempotent: skips if `.prepared` marker exists.
-    pub fn prepare(&self, mirror: Option<&str>) -> Result<()> {
+    /// Idempotent: skips if `.prepared` marker exists.  When `project_dir`
+    /// contains `defaults/overlay/`, installs it as the `crossdev-stages`
+    /// portage overlay (for opt-in extras like the ESOS firmware ebuilds).
+    pub fn prepare(&self, project_dir: Option<&Utf8Path>, mirror: Option<&str>) -> Result<()> {
         if self.dir.join(".prepared").exists() {
             tracing::info!("Sandbox already prepared, skipping.");
             return Ok(());
@@ -60,6 +62,10 @@ impl Sandbox {
             binhost: None,
         }
         .write(&self.dir.join("etc/portage"))?;
+
+        if let Some(pd) = project_dir {
+            install_overlay(&self.dir, pd)?;
+        }
 
         tracing::info!("Installing host dependencies…");
         install_host_deps(&self.runner())?;
@@ -433,4 +439,46 @@ pub struct SandboxInfo {
     pub name: String,
     pub arch: String,
     pub prepared: bool,
+}
+
+/// Copy `${project_dir}/defaults/overlay/` into the sandbox as the
+/// `crossdev-stages` portage overlay and write a repos.conf entry.
+/// No-op if the source overlay directory doesn't exist.
+fn install_overlay(sandbox: &Utf8Path, project_dir: &Utf8Path) -> Result<()> {
+    let src = project_dir.join("defaults/overlay");
+    if !src.is_dir() {
+        return Ok(());
+    }
+    let dst = sandbox.join("var/db/repos/crossdev-stages");
+    tracing::info!("Installing crossdev-stages overlay at {dst}…");
+    copy_tree(&src, &dst)?;
+
+    let repos_conf = sandbox.join("etc/portage/repos.conf");
+    fs::create_dir_all(&repos_conf)?;
+    fs::write(
+        repos_conf.join("crossdev-stages.conf"),
+        "[crossdev-stages]\n\
+         location = /var/db/repos/crossdev-stages\n\
+         auto-sync = no\n",
+    )?;
+    Ok(())
+}
+
+fn copy_tree(src: &Utf8Path, dst: &Utf8Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let name = entry.file_name();
+        let src_path = Utf8PathBuf::try_from(entry.path()).map_err(|e| {
+            Error::CommandFailed { code: 1, reason: format!("non-utf8 overlay path: {e}") }
+        })?;
+        let dst_path = dst.join(name.to_string_lossy().as_ref());
+        if ty.is_dir() {
+            copy_tree(&src_path, &dst_path)?;
+        } else if ty.is_file() {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
