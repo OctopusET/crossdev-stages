@@ -99,12 +99,17 @@ impl Target {
         let portage = Portage::new(&runner);
 
         // Update the cross-toolchain in the crossdev prefix first (no ROOT=/target).
-        tracing::info!("Updating crossdev prefix: gcc, binutils-libs, @system…");
-        portage.cross_emerge_crossdev(&chost, &["sys-devel/gcc"])?;
+        // Pin gcc to the spec this store was built with so portage doesn't
+        // pick the current default (could be a different major and would break
+        // ABI of binpkgs already in the cache).  Pass --noreplace so the cross
+        // prefix's package.mask/pin-gcc, which blocks upgrades past the
+        // installed version, does not abort the run when gcc is already there.
+        let gcc_atom = format!("'=sys-devel/gcc-{gcc_spec}*'");
+        tracing::info!(gcc_atom = %gcc_atom, "Updating crossdev prefix: gcc, binutils-libs, @system…");
+        portage.cross_emerge_crossdev(&chost, &["--noreplace", &gcc_atom])?;
         portage.cross_emerge_crossdev(&chost, &["sys-libs/binutils-libs"])?;
         portage.cross_emerge_crossdev(&chost, &["-u", "system"])?;
 
-        // Rebuild @world in the target.
         tracing::info!("Rebuilding @world in target…");
         portage.cross_emerge_world(&chost)?;
 

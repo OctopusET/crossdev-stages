@@ -117,7 +117,7 @@ impl<'a> MakeConf<'a> {
     }
 }
 
-fn parallelism() -> (usize, usize) {
+pub fn parallelism() -> (usize, usize) {
     let n = num_cpus::get();
     let jobs = n / 2 + 1;
     let load = n;
@@ -262,9 +262,13 @@ impl<'a> Portage<'a> {
 
     /// Rebuild the target stage's `@world` with `KERNEL_DIR` pointing at the
     /// in-prefix kernel headers, which some `@world` packages read.
+    /// Explicit --jobs / --load-average so EMERGE_DEFAULT_OPTS from make.conf
+    /// can't be silently lost (e.g. when a wrapper drops PORTAGE_CONFIGROOT).
     pub fn cross_emerge_world(&self, chost: &str) -> Result<()> {
+        let (jobs, load) = parallelism();
         self.runner.run(&format!(
-            "KERNEL_DIR=/usr/src/linux ROOT=/target {chost}-emerge -b -k -e @world"
+            "KERNEL_DIR=/usr/src/linux ROOT=/target {chost}-emerge \
+             -b -k --jobs={jobs} --load-average {load} -e @world"
         ))
     }
 
