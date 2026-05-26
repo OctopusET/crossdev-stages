@@ -46,7 +46,14 @@ impl<'a> MakeConf<'a> {
             "EMERGE_DEFAULT_OPTS",
             &format!("--jobs={jobs} --load-average {load}"),
         )?;
-        set_make_conf_var(&make_conf, "FEATURES", "parallel-install -merge-wait")?;
+        set_make_conf_var(
+            &make_conf,
+            "FEATURES",
+            "parallel-install parallel-fetch -merge-wait pkgdir-index-trusted",
+        )?;
+        // Container already tmpfs-mounts /dev/shm; using it for portage's
+        // build dir avoids disk IO on big builds (gcc, llvm, rust).
+        set_make_conf_var(&make_conf, "PORTAGE_TMPDIR", "/dev/shm")?;
         set_make_conf_var(&make_conf, "ACCEPT_KEYWORDS", &format!("~{garch}"))?;
         set_make_conf_var(&make_conf, "PORT_LOGDIR", &format!("/var/log/portage/{garch}"))?;
 
@@ -83,9 +90,7 @@ impl<'a> MakeConf<'a> {
 
 pub fn parallelism() -> (usize, usize) {
     let n = num_cpus::get();
-    let jobs = n / 2 + 1;
-    let load = n;
-    (jobs, load)
+    (n, n * 2)
 }
 
 /// Set or replace a variable in a make.conf file.
