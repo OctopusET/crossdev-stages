@@ -104,6 +104,8 @@ impl Target {
         // ABI of binpkgs already in the cache).  Pass --noreplace so the cross
         // prefix's package.mask/pin-gcc, which blocks upgrades past the
         // installed version, does not abort the run when gcc is already there.
+        // Single-quoted: the atom goes through `bash -c`, where an unquoted
+        // `=sys-devel/gcc-15*` is subject to glob expansion.
         let gcc_atom = format!("'=sys-devel/gcc-{gcc_spec}*'");
         tracing::info!(gcc_atom = %gcc_atom, "Updating crossdev prefix: gcc, binutils-libs, @system…");
         portage.cross_emerge_crossdev(&chost, &["--noreplace", &gcc_atom])?;
@@ -173,6 +175,9 @@ impl Target {
             for_build_host: false,
         }
         .write(&portage_dir)?;
+
+        // The store key already resolved which gcc this target is built by.
+        crate::portage::write_version_pins(&portage_dir, Some(gcc_spec))?;
 
         // Copy the profile directory and make.profile symlink from the
         // store-resident crossdev prefix so the target stage uses the
