@@ -1,0 +1,49 @@
+# Default packages cross-emerged into every board's target sysroot.
+#
+# Per-board overrides in boards/<board>/target-packages.txt:
+#   foo/bar        add to the set
+#   -foo/bar       remove from the default set
+#
+# Mirrors the practical default lifted from cross-stage.sh
+# (ADDITIONAL_PACKAGES + install_boot), trimmed of language toolchains
+# that aren't universally wanted (rust/go/mold — opt in per board).
+
+# Network & remote access
+net-misc/openssh
+net-misc/dhcpcd
+net-misc/ntp
+
+# Wireless (most SBCs ship WiFi)
+net-wireless/wpa_supplicant
+net-wireless/iw
+
+# Logging
+app-admin/metalog
+
+# Initramfs / minimal userland
+sys-apps/busybox
+sys-kernel/dracut
+
+# First-boot rootfs grow (used by defaults/scripts/grow-rootfs.initd)
+sys-block/parted
+sys-fs/e2fsprogs
+
+# Interactive / dev essentials
+app-editors/vim
+app-misc/screen
+sys-process/htop
+sys-process/lsof
+dev-vcs/git
+net-misc/curl
+net-misc/wget
+
+# Build systems used by upstream-pulled sources
+dev-build/cmake
+dev-build/meson
+dev-build/ninja
+
+# Diagnostic
+net-analyzer/nmap
+app-misc/fastfetch
+app-portage/gentoolkit
+app-portage/genlop

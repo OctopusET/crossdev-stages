@@ -188,22 +188,54 @@ fn default_deps(
         }
     }
 
-    let target_pkgs = boards_root.join(&board.name).join("target-packages.txt");
-    if target_pkgs.exists() {
-        let content = std::fs::read_to_string(&target_pkgs)?;
-        let pkgs: Vec<&str> = content
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .collect();
-        if !pkgs.is_empty() {
-            let target_runner = board_runner(sandbox, board).with_target(&target.dir);
-            let portage = Portage::new(&target_runner);
-            portage.cross_emerge(&board.chost(), &pkgs)?;
-        }
+    // Target packages = defaults/target-packages.txt (project-wide baseline)
+    // overlaid with boards/<board>/target-packages.txt (additive; `-foo/bar`
+    // entries subtract from the default set).
+    let project = project_root(boards_root);
+    let pkgs = merge_pkg_lists(
+        &project.join("defaults").join("target-packages.txt"),
+        &boards_root.join(&board.name).join("target-packages.txt"),
+    );
+    if !pkgs.is_empty() {
+        let pkg_refs: Vec<&str> = pkgs.iter().map(String::as_str).collect();
+        let target_runner = board_runner(sandbox, board).with_target(&target.dir);
+        let portage = Portage::new(&target_runner);
+        portage.cross_emerge(&board.chost(), &pkg_refs)?;
     }
 
     Ok(())
+}
+
+/// Read a portage atom list from a text file (`#` comments + blank lines
+/// skipped, leading/trailing whitespace stripped).  Missing file returns
+/// empty — both the project defaults and the per-board file are optional
+/// in principle, even if shipping zero target packages would produce a
+/// pretty bare image.
+fn read_pkg_list(path: &Utf8Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .map(|c| {
+            c.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Merge a default package list with a per-board overlay.  Overlay entries
+/// prefixed with `-` remove from the defaults; everything else adds.  Output
+/// is sorted for stable emerge invocations / log diffability.
+fn merge_pkg_lists(defaults_path: &Utf8Path, overlay_path: &Utf8Path) -> Vec<String> {
+    let mut set: std::collections::BTreeSet<String> = read_pkg_list(defaults_path).into_iter().collect();
+    for line in read_pkg_list(overlay_path) {
+        if let Some(removed) = line.strip_prefix('-') {
+            set.remove(removed.trim());
+        } else {
+            set.insert(line);
+        }
+    }
+    set.into_iter().collect()
 }
 
 fn default_checkout(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> {
