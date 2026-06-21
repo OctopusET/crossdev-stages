@@ -95,16 +95,33 @@ pub async fn run(
             };
             image::build(ws, &sb, &tgt, &board_cfg, boards_root, steps_opt)?;
         }
-        ImageCmd::Prune => {
+        ImageCmd::Prune { all, board } => {
             let builds = ws.list_builds()?;
             let mut pruned = 0;
             for dir in builds {
-                if !dir.join(".packed").exists() {
-                    std::fs::remove_dir_all(&dir)?;
-                    pruned += 1;
+                if let Some(ref want) = board {
+                    // Prefer .board marker; fall back to directory basename
+                    // (matches both "<board>" and legacy "<board>-<ts>") so
+                    // partially-deleted dirs missing .board can still be pruned.
+                    let by_marker = image::Build::open(dir.clone()).map(|b| b.board);
+                    let name_matches = dir
+                        .file_name()
+                        .map(|n| n == want.as_str() || n.starts_with(&format!("{want}-")))
+                        .unwrap_or(false);
+                    if by_marker.as_deref() != Some(want.as_str()) && !name_matches {
+                        continue;
+                    }
                 }
+                if !all && dir.join(".packed").exists() {
+                    continue;
+                }
+                println!("removing {dir}");
+                // Build dirs contain stage3-rooted files owned by portage/root;
+                // remove via a container with the full subordinate uid/gid map.
+                crate::container::destroy_dir(&dir, ws.base())?;
+                pruned += 1;
             }
-            println!("Pruned {pruned} incomplete build(s).");
+            println!("Pruned {pruned} build(s).");
         }
         ImageCmd::Export {
             board: board_name,

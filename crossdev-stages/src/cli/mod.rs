@@ -216,8 +216,16 @@ pub enum ImageCmd {
         /// Specific steps to run (default: all steps from board.conf).
         steps: Vec<String>,
     },
-    /// Remove incomplete builds.
-    Prune,
+    /// Remove builds.  By default removes incomplete builds (no .packed marker).
+    /// Mirrors `docker container prune` (drop stopped) + `--all` (drop all).
+    Prune {
+        /// Remove all builds, including successfully packed ones.
+        #[arg(long, short)]
+        all: bool,
+        /// Restrict pruning to a single board.
+        #[arg(long)]
+        board: Option<String>,
+    },
     /// Export the final image file from a build.
     Export {
         /// Board name.
