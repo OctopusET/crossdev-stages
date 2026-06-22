@@ -281,16 +281,17 @@ impl Sandbox {
         runner.run(&format!("merge-usr --root /usr/{chost}"))?;
 
         tracing::info!("Running crossdev (this takes a while)…");
-        let grub_ex_pkg = if board.grub_platforms.is_some() {
-            " --ex-pkg sys-boot/grub"
-        } else {
-            ""
-        };
+        // grub installs via ensure_grub_ex_pkg below (cross-prefix emerge)
+        // instead of riding along here.  crossdev's --ex-pkg uses host
+        // portage and the cross-CHOST/grub package would write
+        // /usr/bin/grub-* into HOST paths, colliding with the sandbox's
+        // own sys-boot/grub.  Cross-prefix emerge installs cleanly to
+        // /usr/{chost}/usr/bin/ with no host overlap.
         runner.run(&format!(
             "crossdev {chost} \
              --gcc {gcc_ver} \
              --ex-pkg sys-devel/clang-crossdev-wrappers \
-             --ex-pkg sys-devel/rust-std{grub_ex_pkg}"
+             --ex-pkg sys-devel/rust-std"
         ))?;
 
         // Switch cross compiler to the installed slot.
@@ -301,6 +302,10 @@ impl Sandbox {
         // Write marker with the exact version used (enables idempotency on next run).
         std::fs::write(&marker, &gcc_ver)?;
         tracing::info!("Crossdev for {chost} complete (gcc-{gcc_ver}).");
+
+        // Install grub into the cross-prefix (see crossdev call above for
+        // why it can't be a --ex-pkg).
+        self.ensure_grub_ex_pkg(board, &chost, &runner)?;
         Ok(())
     }
 
