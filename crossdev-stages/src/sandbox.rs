@@ -377,13 +377,19 @@ impl Sandbox {
         if target_arch != "riscv32" {
             ex_pkgs.push("sys-devel/rust-std");
         }
-        if board.grub_platforms.is_some() {
-            ex_pkgs.push("sys-boot/grub");
-        }
+        // grub is not an --ex-pkg: crossdev runs those through host portage,
+        // so the cross-CHOST grub would write /usr/bin/grub-* into the host
+        // paths and collide with the sandbox's own sys-boot/grub.  It goes in
+        // through ensure_grub_ex_pkg below, which cross-emerges it into
+        // /usr/<chost>/usr/bin/ with no host overlap.
         portage.crossdev_setup(&chost, &gcc_ver, &ex_pkgs)?;
 
         // Switch cross compiler to the installed slot.
         portage.activate_gcc_and_profile(&chost, &gcc_slot)?;
+
+        // grub, if the board boots with one.  Before the markers below: a
+        // prefix marked complete has to have everything the board asked for.
+        self.ensure_grub_ex_pkg(board, &chost, &store_dir, &binpkgs_dir)?;
 
         // Stash the host-side toolchain payload in the store so a fresh
         // sandbox can replay it (see ensure_host_payload).  Must happen
