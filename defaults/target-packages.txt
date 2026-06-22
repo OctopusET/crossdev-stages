@@ -30,7 +30,8 @@ sys-fs/e2fsprogs
 
 # Interactive / dev essentials
 app-editors/vim
-app-misc/screen
+# app-misc/screen — cross-emerge fails at fowners root:utmp (utmp user
+# absent from cross-prefix passwd).  Opt in per board if needed.
 sys-process/htop
 sys-process/lsof
 dev-vcs/git
@@ -39,7 +40,7 @@ net-misc/wget
 
 # Build systems used by upstream-pulled sources
 dev-build/cmake
-dev-build/meson
+# dev-build/meson — python wheel cross-build fragile, opt in per board
 dev-build/ninja
 
 # Diagnostic
