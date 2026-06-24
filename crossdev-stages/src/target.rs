@@ -98,7 +98,18 @@ impl Target {
         portage.cross_emerge_build(&chost, &["sys-apps/baselayout"])?;
 
         tracing::info!("Cross-emerging packages.build…");
-        portage.cross_emerge(&chost, &[&portage.packages_build()?])?;
+        // rv32-musl: sys-apps/net-tools needs linux/rose.h, which musl does
+        // not ship, and the rest of packages.build has never been
+        // cross-emerged for that profile.  Drop net-tools (busybox provides
+        // the same utilities) and report failures instead of aborting on the
+        // first.  Elsewhere a packages.build failure is a real regression.
+        let packages = portage.packages_build()?;
+        let mut atoms: Vec<&str> = packages.split_whitespace().collect();
+        if self.arch == "riscv32" {
+            atoms.retain(|a| *a != "sys-apps/net-tools");
+            atoms.insert(0, "--keep-going");
+        }
+        portage.cross_emerge(&chost, &atoms)?;
 
         tracing::info!("Cross-emerging portage…");
         portage.cross_emerge_build(&chost, &["sys-apps/portage"])?;
@@ -229,12 +240,12 @@ impl Target {
         }
 
         let src_link = src_portage.join("make.profile");
-        if src_link.is_symlink() {
+        let dst_link = portage_dir.join("make.profile");
+        // Only copy the profile symlink if the target doesn't already have one.
+        // The target may need a different profile flavour than the crossdev
+        // prefix (e.g. merged-usr target vs split-usr prefix on rv32-musl).
+        if src_link.is_symlink() && !dst_link.is_symlink() && !dst_link.exists() {
             let link_target = std::fs::read_link(&src_link)?;
-            let dst_link = portage_dir.join("make.profile");
-            if dst_link.exists() || dst_link.is_symlink() {
-                std::fs::remove_file(&dst_link)?;
-            }
             std::os::unix::fs::symlink(&link_target, &dst_link)?;
         }
 

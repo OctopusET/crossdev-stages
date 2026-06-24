@@ -372,7 +372,11 @@ impl Sandbox {
         ))?;
 
         tracing::info!("Running crossdev (this takes a while)…");
-        let mut ex_pkgs = vec!["sys-devel/clang-crossdev-wrappers", "sys-devel/rust-std"];
+        let mut ex_pkgs = vec!["sys-devel/clang-crossdev-wrappers"];
+        // rustc has no upstream target for riscv32-unknown-linux-gnu.
+        if target_arch != "riscv32" {
+            ex_pkgs.push("sys-devel/rust-std");
+        }
         if board.grub_platforms.is_some() {
             ex_pkgs.push("sys-boot/grub");
         }
