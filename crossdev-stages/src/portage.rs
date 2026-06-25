@@ -173,10 +173,13 @@ impl<'a> Portage<'a> {
     }
 
     /// Cross-emerge with `USE=build` for bootstrapping (baselayout, portage).
+    /// PORTAGE_CONFIGROOT=/target picks up the target's profile (merged-usr on
+    /// rv32-musl, etc.) instead of the crossdev prefix's split-usr profile.
     pub fn cross_emerge_build(&self, chost: &str, packages: &[&str]) -> Result<()> {
         let pkgs = packages.join(" ");
         self.runner.run(&format!(
-            "USE=build ROOT=/target {chost}-emerge -b -k {pkgs}"
+            "USE=build PORTAGE_CONFIGROOT=/target ROOT=/target \
+             {chost}-emerge -b -k {pkgs}"
         ))
     }
 
