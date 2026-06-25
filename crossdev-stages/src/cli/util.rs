@@ -41,7 +41,13 @@ pub async fn ensure_target(
     sandbox_name: Option<&str>,
     mirror: Option<&str>,
 ) -> Result<(target::Target, sandbox::Sandbox)> {
-    let (tgt, resolved_arch) = match ws.resolve_target(target_name) {
+    // If --arch is given, filter targets by that arch so we don't fall back to
+    // the most-recently-modified target of a foreign arch.
+    let resolved = match arch_override {
+        Some(a) => ws.resolve_target_for_arch(target_name, a),
+        None => ws.resolve_target(target_name),
+    };
+    let (tgt, resolved_arch) = match resolved {
         Ok(td) => {
             let tgt = target::Target::open(td)?;
             let arch = arch_override
