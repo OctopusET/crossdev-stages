@@ -4,6 +4,17 @@ use crate::container::SandboxRunner;
 use crate::error::Result;
 use crate::stage::{all_llvm_targets, default_cflags, gentoo_arch, llvm_target};
 
+/// Single-quote each atom so portage-style operators (`>=`, `<`, `=`) and
+/// SLOT colons survive bash interpretation when the atom list is spliced
+/// into a `format!`'d shell command.  Atoms never contain single quotes.
+fn shell_quote_atoms(atoms: &[&str]) -> String {
+    atoms
+        .iter()
+        .map(|a| format!("'{a}'"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Parameters for a Portage `make.conf` file.
 pub struct MakeConf<'a> {
     pub arch: &'a str,
@@ -148,13 +159,13 @@ impl<'a> Portage<'a> {
 
     /// Emerge packages from binary packages only (`-G`).
     pub fn emerge_binary(&self, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
+        let pkgs = shell_quote_atoms(packages);
         self.runner.run(&format!("emerge -G {pkgs}"))
     }
 
     /// Emerge packages, using binary if available (`-b -k`).
     pub fn emerge(&self, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
+        let pkgs = shell_quote_atoms(packages);
         self.runner.run(&format!("emerge -b -k {pkgs}"))
     }
 
@@ -165,18 +176,24 @@ impl<'a> Portage<'a> {
     }
 
     /// Cross-emerge packages into the target stage (mounted at `/target`).
-    /// Uses `{chost}-emerge` which crossdev installs.
+    /// Uses `{chost}-emerge` which crossdev installs.  PORTAGE_CONFIGROOT
+    /// is forced to /target so portage reads the target's merged-/usr
+    /// profile instead of the crossdev prefix's split-/usr profile —
+    /// otherwise the binpkg produced has CONTENTS that lists `/bin/wc`
+    /// AND `/usr/bin/wc` as separate paths and collides on a real
+    /// (merged-usr) install root.
     pub fn cross_emerge(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.runner
-            .run(&format!("ROOT=/target {chost}-emerge -b -k {pkgs}"))
+        let pkgs = shell_quote_atoms(packages);
+        self.runner.run(&format!(
+            "PORTAGE_CONFIGROOT=/target ROOT=/target {chost}-emerge -b -k {pkgs}"
+        ))
     }
 
     /// Cross-emerge with `USE=build` for bootstrapping (baselayout, portage).
     /// PORTAGE_CONFIGROOT=/target picks up the target's profile (merged-usr on
     /// rv32-musl, etc.) instead of the crossdev prefix's split-usr profile.
     pub fn cross_emerge_build(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
+        let pkgs = shell_quote_atoms(packages);
         self.runner.run(&format!(
             "USE=build PORTAGE_CONFIGROOT=/target ROOT=/target \
              {chost}-emerge -b -k {pkgs}"
@@ -187,7 +204,7 @@ impl<'a> Portage<'a> {
     /// the crossdev prefix (`/usr/{chost}`) rather than `/target`.
     /// Used for updating the cross-toolchain itself (gcc, binutils-libs, @system).
     pub fn cross_emerge_crossdev(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
+        let pkgs = shell_quote_atoms(packages);
         self.runner.run(&format!("{chost}-emerge -b -k {pkgs}"))
     }
 }
