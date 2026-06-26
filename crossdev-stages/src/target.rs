@@ -56,41 +56,14 @@ impl Target {
         tracing::info!("Logs at: {}", runner.log_dir());
         let portage = Portage::new(&runner);
 
+        // For our use case /target is a BINPKG SINK + merged-usr FHS host —
+        // the cross-prefix sandbox runs portage and resolves deps; /target
+        // just receives the installed files of the packages we list in
+        // boards/<name>/{sandbox,target,initramfs}-packages.txt.  Bootstrap
+        // is therefore just baselayout (which seeds /bin → usr/bin etc.).
+        // No on-target portage, no @system bootstrap of compiler chains.
         tracing::info!("Cross-emerging baselayout…");
         portage.cross_emerge_build(&chost, &["sys-apps/baselayout"])?;
-
-        tracing::info!("Cross-emerging packages.build…");
-        // rv32-musl: sys-apps/net-tools needs linux/rose.h which musl libc
-        // does not ship. Drop it from the @system bootstrap; busybox provides
-        // equivalent utilities.
-        let extra_filter = if self.arch == "riscv32" {
-            "| grep -v 'sys-apps/net-tools'"
-        } else {
-            ""
-        };
-        let packages = runner.run_output(&format!(
-            "grep -v '^#' /var/db/repos/gentoo/profiles/default/linux/packages.build \
-             | grep -v '^[[:space:]]*$' {extra_filter} | tr '\\n' ' '"
-        ))?;
-        if packages.is_empty() {
-            return Err(crate::error::Error::CommandFailed {
-                code: 1,
-                reason: "packages.build is empty or missing".into(),
-            });
-        }
-        // PORTAGE_CONFIGROOT=/target so portage reads the *target's* profile
-        // (merged-usr) rather than the crossdev prefix's profile (split-usr).
-        // Otherwise packages like app-alternatives/awk inherit the prefix's
-        // split-usr USE flag and produce file collisions on the merged target.
-        // --keep-going lets stage1 tolerate packages that genuinely cannot be
-        // cross-emerged (e.g. net-tools on rv32-musl needs linux/rose.h).
-        runner.run(&format!(
-            "PORTAGE_CONFIGROOT=/target ROOT=/target \
-             {chost}-emerge -b -k --keep-going {packages}"
-        ))?;
-
-        tracing::info!("Cross-emerging portage…");
-        portage.cross_emerge_build(&chost, &["sys-apps/portage"])?;
 
         self.update_ldconfig(sandbox)?;
 
@@ -140,7 +113,7 @@ impl Target {
     /// Write target portage make.conf and copy the profile link from the
     /// crossdev prefix in the sandbox — mirrors `prepare_target_portage` in
     /// the bash script.
-    fn prepare_portage(&self, sandbox: &Sandbox, chost: &str) -> Result<()> {
+    pub fn prepare_portage(&self, sandbox: &Sandbox, chost: &str) -> Result<()> {
         let portage_dir = self.dir.join("etc/portage");
         std::fs::create_dir_all(&portage_dir)?;
 
@@ -171,14 +144,48 @@ impl Target {
             }
         }
 
+        // Force CFLAGS via /etc/portage/env override so ebuilds that
+        // strip flags (musl, glibc, ...) can't drop our -march.  Without
+        // this, the binpkg ELF ends up with RVC (compressed insns) on
+        // a CPU configured without the C extension — and any function
+        // page-fault traps with "Invalid opcode: ..." somewhere in
+        // libc.so on the target SoC.
+        let cflags = default_cflags(&self.arch);
+        let env_dir = portage_dir.join("env");
+        let pkg_env_dir = portage_dir.join("package.env");
+        std::fs::create_dir_all(&env_dir)?;
+        std::fs::create_dir_all(&pkg_env_dir)?;
+        std::fs::write(
+            env_dir.join("force-cflags"),
+            format!(
+                "CFLAGS=\"{cflags}\"\n\
+                 CXXFLAGS=\"{cflags}\"\n\
+                 # No -O2/-Os override here — ebuild's choice respected.\n"
+            ),
+        )?;
+        std::fs::write(
+            pkg_env_dir.join("zz-force-cflags"),
+            "*/* force-cflags\n",
+        )?;
+
         let src_link = src_portage.join("make.profile");
         let dst_link = portage_dir.join("make.profile");
-        // Only copy the profile symlink if the target doesn't already have one.
-        // The target may need a different profile flavour than the crossdev
-        // prefix (e.g. merged-usr target vs split-usr prefix on rv32-musl).
-        if src_link.is_symlink() && !dst_link.is_symlink() && !dst_link.exists() {
+        // Cross-prefix profiles use split-usr (crossdev mandates it for the
+        // prefix layout — /usr/{chost}/lib etc. is a sibling of /usr/{chost}/
+        // usr/lib).  Real targets use Gentoo 23.0's merged-usr default
+        // (riscv/23.0/rv32/ilp32/musl, no `split-usr` segment), otherwise
+        // baselayout creates /bin as a dir instead of a usr/bin symlink and
+        // every subsequent emerge collides.  Translate the symlink path on
+        // copy.  Always overwrite — a stale symlink in a re-bootstrapped
+        // target will silently use the wrong profile.
+        if src_link.is_symlink() {
             let link_target = std::fs::read_link(&src_link)?;
-            std::os::unix::fs::symlink(&link_target, &dst_link)?;
+            let translated: std::path::PathBuf = link_target
+                .to_string_lossy()
+                .replace("/split-usr/", "/")
+                .into();
+            let _ = std::fs::remove_file(&dst_link);
+            std::os::unix::fs::symlink(&translated, &dst_link)?;
         }
 
         Ok(())

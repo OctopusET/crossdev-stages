@@ -191,12 +191,104 @@ fn default_deps(
     let target_pkgs = boards_root.join(&board.name).join("target-packages.txt");
     if target_pkgs.exists() {
         let content = std::fs::read_to_string(&target_pkgs)?;
-        let pkgs: Vec<&str> = content
+        let lines: Vec<&str> = content
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .collect();
+
+        // Mirror sandbox-packages.txt: "atom [keywords]" — drop keyword
+        // overrides into BOTH the target's portage config (for the
+        // PORTAGE_CONFIGROOT=/target case used by bootstrap) AND the
+        // cross-prefix portage config (which is what {chost}-emerge
+        // actually reads when ROOT=/target but PORTAGE_CONFIGROOT is left
+        // at its default of the cross-prefix `/usr/<chost>/`).  Format:
+        //   sys-apps/busybox
+        //   >=sys-apps/busybox-1.38.0 **
+        //   dev-libs/foo ~riscv
+        let target_kw_dir = target.dir.join("etc/portage/package.accept_keywords");
+        let crossprefix_kw_dir = sandbox
+            .dir
+            .join(format!("usr/{}/etc/portage/package.accept_keywords", board.chost()));
+        std::fs::create_dir_all(&target_kw_dir)?;
+        std::fs::create_dir_all(&crossprefix_kw_dir)?;
+        let mut pkgs: Vec<&str> = Vec::new();
+        for line in &lines {
+            let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+            let atom = parts[0];
+            pkgs.push(atom);
+            if parts.len() > 1 {
+                let keywords = parts[1].trim();
+                let safe_name = atom
+                    .replace('/', "_")
+                    .replace(['>', '<', '=', ':'], "_");
+                let payload = format!("{atom} {keywords}\n");
+                std::fs::write(target_kw_dir.join(&safe_name), &payload)?;
+                std::fs::write(crossprefix_kw_dir.join(&safe_name), &payload)?;
+            }
+        }
+
+        // boards/<name>/portage-patches/ -> /etc/portage/patches/ on both
+        // PORTAGE_CONFIGROOT candidates.  Gentoo's eapply_user picks these
+        // up during src_prepare for any ebuild.
+        let board_patches = boards_root.join(&board.name).join("portage-patches");
+        if board_patches.is_dir() {
+            for dst_root in [
+                target.dir.join("etc/portage/patches"),
+                sandbox
+                    .dir
+                    .join(format!("usr/{}/etc/portage/patches", board.chost())),
+            ] {
+                copy_dir_recursive(&board_patches, &dst_root)?;
+            }
+        }
+
+        // boards/<name>/package.provided → /etc/portage/profile/package.provided.
+        // Tells portage "these atoms are already installed" without
+        // actually merging them — used to break dep chains into atoms
+        // that don't cross-build on the target (e.g. virtual/udev →
+        // sys-apps/systemd-utils on rv32-musl).
+        let board_provided = boards_root.join(&board.name).join("package.provided");
+        if board_provided.is_file() {
+            for profile_dir in [
+                target.dir.join("etc/portage/profile"),
+                sandbox
+                    .dir
+                    .join(format!("usr/{}/etc/portage/profile", board.chost())),
+            ] {
+                std::fs::create_dir_all(&profile_dir)?;
+                std::fs::copy(&board_provided, profile_dir.join("package.provided"))?;
+            }
+        }
+
         if !pkgs.is_empty() {
+            // Mirror sandbox-packages.use: per-atom USE overrides go to
+            // both target and cross-prefix portage config, same reason as
+            // package.accept_keywords above.
+            let target_use = boards_root.join(&board.name).join("target-packages.use");
+            if target_use.exists() {
+                let target_use_dir = target.dir.join("etc/portage/package.use");
+                let crossprefix_use_dir = sandbox
+                    .dir
+                    .join(format!("usr/{}/etc/portage/package.use", board.chost()));
+                std::fs::create_dir_all(&target_use_dir)?;
+                std::fs::create_dir_all(&crossprefix_use_dir)?;
+                let use_content = std::fs::read_to_string(&target_use)?;
+                for line in use_content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+                    let atom = parts[0];
+                    let safe_name = atom
+                        .replace('/', "_")
+                        .replace(['>', '<', '=', ':'], "_");
+                    let payload = format!("{line}\n");
+                    std::fs::write(target_use_dir.join(&safe_name), &payload)?;
+                    std::fs::write(crossprefix_use_dir.join(&safe_name), &payload)?;
+                }
+            }
             let target_runner = board_runner(sandbox, board).with_target(&target.dir);
             let portage = Portage::new(&target_runner);
             portage.cross_emerge(&board.chost(), &pkgs)?;
@@ -416,6 +508,13 @@ pub fn build(
 ) -> Result<()> {
     let bld = Build::create(ws, &board.name)?;
 
+    // Seed /target with our make.conf + force-cflags env + profile link
+    // before any step runs.  cross_emerge in default_deps reads CFLAGS
+    // from /target/etc/portage/{make.conf,env/*}; without this the
+    // stage3 default CFLAGS (which on rv32-musl include the C
+    // extension) leak into every binpkg.  Idempotent — overwrites.
+    target.prepare_portage(sandbox, &board.chost())?;
+
     let default_steps = if board.build_steps.is_empty() {
         vec![
             "deps",
@@ -495,6 +594,23 @@ pub fn build(
 
     let total_elapsed = build_start.elapsed();
     println!("\nBuild complete: {}", format_duration(total_elapsed));
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Utf8Path, dst: &Utf8Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let name = entry.file_name();
+        let from = src.join(name.to_string_lossy().as_ref());
+        let to = dst.join(name.to_string_lossy().as_ref());
+        if ty.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if ty.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
     Ok(())
 }
 
