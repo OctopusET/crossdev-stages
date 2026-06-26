@@ -140,9 +140,8 @@ impl Target {
         // ABI of binpkgs already in the cache).  Pass --noreplace so the cross
         // prefix's package.mask/pin-gcc, which blocks upgrades past the
         // installed version, does not abort the run when gcc is already there.
-        // Single-quoted: the atom goes through `bash -c`, where an unquoted
-        // `=sys-devel/gcc-15*` is subject to glob expansion.
-        let gcc_atom = format!("'=sys-devel/gcc-{gcc_spec}*'");
+        // No quoting: the atom is its own argv element (run_emerge_argv).
+        let gcc_atom = format!("=sys-devel/gcc-{gcc_spec}*");
         tracing::info!(gcc_atom = %gcc_atom, "Updating crossdev prefix: gcc, binutils-libs, @system…");
         portage.cross_emerge_crossdev(&chost, &["--noreplace", &gcc_atom])?;
         portage.cross_emerge_crossdev(&chost, &["sys-libs/binutils-libs"])?;

@@ -277,6 +277,25 @@ impl<'a> Portage<'a> {
         result
     }
 
+    /// [`Self::run_emerge`] for an argv: each atom is its own argument, so
+    /// `>=`, `:` and a trailing `*` reach portage untouched, with no shell
+    /// to quote them against.  Still a login shell: hakoniwa execs without a
+    /// PATH search, and /etc/profile is where gcc-config and crossdev put
+    /// theirs.
+    fn run_emerge_argv(&self, head: &[&str], packages: &[&str]) -> Result<()> {
+        let argv: Vec<&str> = ["/bin/bash", "--login", "-c", "exec \"$@\"", "bash"]
+            .iter()
+            .chain(head)
+            .chain(packages)
+            .copied()
+            .collect();
+        let result = self.runner.run_argv(&argv);
+        if result.is_err() {
+            let _ = self.runner.run(SHOW_BUILD_FAILURES);
+        }
+        result
+    }
+
     /// Initial sync of the portage tree.
     pub fn webrsync(&self) -> Result<()> {
         self.runner.run("emerge-webrsync")
@@ -293,8 +312,7 @@ impl<'a> Portage<'a> {
     /// `--changed-use` so a board's `sandbox-packages.use` also applies to
     /// packages that are already installed with different flags.
     pub fn emerge(&self, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!("emerge -b -k --changed-use {pkgs}"))
+        self.run_emerge_argv(&["emerge", "-b", "-k", "--changed-use"], packages)
     }
 
     /// Rebuild the world set.
@@ -313,31 +331,29 @@ impl<'a> Portage<'a> {
 
     /// Bring a set of packages up to date without touching the rest.
     pub fn update(&self, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!("emerge -b -k -uDN --keep-going {pkgs}"))
+        self.run_emerge_argv(&["emerge", "-b", "-k", "-uDN", "--keep-going"], packages)
     }
 
     /// Same, cross-emerged into the target stage.
     pub fn cross_update(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!(
-            "ROOT=/target {chost}-emerge -b -k -uDN --keep-going {pkgs}"
-        ))
+        let emerge = format!("{chost}-emerge");
+        self.run_emerge_argv(
+            &["env", "ROOT=/target", &emerge, "-b", "-k", "-uDN", "--keep-going"],
+            packages,
+        )
     }
 
     /// Cross-emerge packages into the target stage (mounted at `/target`).
     /// Uses `{chost}-emerge` which crossdev installs.
     pub fn cross_emerge(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!("ROOT=/target {chost}-emerge -b -k {pkgs}"))
+        let emerge = format!("{chost}-emerge");
+        self.run_emerge_argv(&["env", "ROOT=/target", &emerge, "-b", "-k"], packages)
     }
 
     /// Cross-emerge with `USE=build` for bootstrapping (baselayout, portage).
     pub fn cross_emerge_build(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!(
-            "USE=build ROOT=/target {chost}-emerge -b -k {pkgs}"
-        ))
+        let emerge = format!("{chost}-emerge");
+        self.run_emerge_argv(&["env", "USE=build", "ROOT=/target", &emerge, "-b", "-k"], packages)
     }
 
     /// Rebuild the target stage's `@world` with `KERNEL_DIR` pointing at the
@@ -372,8 +388,8 @@ impl<'a> Portage<'a> {
     /// the crossdev prefix (`/usr/{chost}`) rather than `/target`.
     /// Used for updating the cross-toolchain itself (gcc, binutils-libs, @system).
     pub fn cross_emerge_crossdev(&self, chost: &str, packages: &[&str]) -> Result<()> {
-        let pkgs = packages.join(" ");
-        self.run_emerge(&format!("{chost}-emerge -b -k {pkgs}"))
+        let emerge = format!("{chost}-emerge");
+        self.run_emerge_argv(&[&emerge, "-b", "-k"], packages)
     }
 
     /// Emerge the host `sys-devel/gcc` cross-compiler seed into the sandbox.
