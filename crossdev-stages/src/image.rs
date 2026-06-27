@@ -23,11 +23,11 @@ pub struct Build {
 
 impl Build {
     pub fn create(ws: &Workspace, board: &str) -> Result<Self> {
-        // One build directory per board.  Reuse it across re-runs: the
-        // timestamp written at first create stays put, so a re-pack
-        // overwrites the same `*-<ts>.img.xz` instead of accumulating
-        // copies.  To start over (and pick up a fresh timestamp), prune
-        // the board's build dir first.
+        // One build directory per board, reused across `image build`
+        // re-runs.  Step caches (.deps/.kernel/.assembled/.packed/...)
+        // and intermediate trees (gen/, linux/, ...) survive; the only
+        // thing freshly stamped per pack is the produced image filename
+        // — see `Build::timestamp()`.
         let dir = ws.builds_dir().join(board);
         if let Some(b) = Self::open(dir.clone()) {
             tracing::info!("Reusing build: {}", dir);
@@ -35,8 +35,6 @@ impl Build {
         }
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join(".board"), board)?;
-        let ts = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-        std::fs::write(dir.join(".timestamp"), &ts)?;
         Ok(Self {
             dir,
             board: board.to_string(),
@@ -50,13 +48,35 @@ impl Build {
         Some(Self { dir, board })
     }
 
-    /// Wall-clock build timestamp embedded in the produced image filename
-    /// (stable across resume — written once at create).
+    /// Fresh wall-clock timestamp for the image filename — recomputed
+    /// on every call so successive packs produce distinguishable
+    /// artefacts.  Pair with `prune_stale_images` to drop older `.img.*`
+    /// from the build dir before the new one is written; otherwise the
+    /// dir slowly accumulates one image per re-pack.
     pub fn timestamp(&self) -> String {
-        std::fs::read_to_string(self.dir.join(".timestamp"))
-            .ok()
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| Utc::now().format("%Y%m%dT%H%M%SZ").to_string())
+        Utc::now().format("%Y%m%dT%H%M%SZ").to_string()
+    }
+
+    /// Remove any `*.img`, `*.img.xz`, `*.img.gz` left from prior packs.
+    /// Called from `default_pack` before genimage writes the new
+    /// timestamped artefact so the build dir holds at most one image.
+    fn prune_stale_images(&self) -> Result<()> {
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return Ok(());
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if name.ends_with(".img")
+                || name.ends_with(".img.xz")
+                || name.ends_with(".img.gz")
+            {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        Ok(())
     }
 
     fn marker(&self, step: &str) -> Utf8PathBuf {
@@ -355,6 +375,11 @@ fn default_pack(
         .image_name
         .clone()
         .unwrap_or_else(|| format!("gentoo-linux-{}_dev-sdcard.img", board.name));
+
+    // Drop any image artefact from a prior pack — this run's filename
+    // gets a fresh timestamp (see Build::timestamp()), so old files
+    // would just pile up otherwise.
+    build.prune_stale_images()?;
 
     runner.run(&format!(
         "rm -rf /build/tmp && cd /build && \
