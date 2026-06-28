@@ -124,20 +124,22 @@ pub async fn run(
             std::fs::create_dir_all(&out_dir)?;
 
             if all {
-                let mut exported = 0;
-                for entry in std::fs::read_dir(&build.dir)? {
-                    let entry = entry?;
-                    let name = entry.file_name().into_string().unwrap_or_default();
-                    if name.starts_with('.') || !entry.path().is_file() {
-                        continue;
-                    }
-                    let dest = out_dir.join(&name);
-                    std::fs::copy(entry.path(), &dest)?;
-                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                    println!("{name} ({:.1}M)", size as f64 / 1_048_576.0);
-                    exported += 1;
-                }
-                println!("{exported} file(s) exported to {out_dir}");
+                // Recursive copy preserving subdir tree.  Flash bundles need
+                // u-boot/, opensbi/build/, factory/ etc. — the previous
+                // top-level-files-only export missed those (K3 and A210
+                // flash.sh both reference paths under u-boot/).
+                //
+                // Denylist: kernel source tree (~2 GB, useless in bundle) and
+                // staging scratch dirs.  opensbi/build/ is INTENTIONALLY kept
+                // — K3's flash.sh pulls fw_dynamic.itb from there.
+                const SKIP_DIRS: &[&str] = &["linux", "gen", "tmp"];
+                let mut count = 0u64;
+                let mut bytes = 0u64;
+                copy_bundle(&build.dir, &out_dir, &out_dir, SKIP_DIRS, &mut count, &mut bytes)?;
+                println!(
+                    "{count} file(s), {:.1}M exported to {out_dir}",
+                    bytes as f64 / 1_048_576.0
+                );
             } else {
                 let img_name = std::fs::read_to_string(build.dir.join(".image"))
                     .map(|s| s.trim().to_string())
@@ -157,6 +159,48 @@ pub async fn run(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// Recursively copy `src` -> `dst`, skipping dotfiles and any directory whose
+/// name appears in `skip_dirs`.  Symlinks are skipped.  Used by `image export --all`
+/// to produce a self-contained flash bundle.
+fn copy_bundle(
+    src: &Utf8Path,
+    dst: &Utf8Path,
+    root_out: &Utf8Path,
+    skip_dirs: &[&str],
+    count: &mut u64,
+    bytes: &mut u64,
+) -> crate::error::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name().into_string().unwrap_or_default();
+        if name.starts_with('.') {
+            continue;
+        }
+        let ft = entry.file_type()?;
+        let path = match Utf8PathBuf::from_path_buf(entry.path()) {
+            Ok(p) => p,
+            Err(_) => continue, // skip non-utf8 paths
+        };
+        let dest = dst.join(&name);
+        if ft.is_dir() {
+            if skip_dirs.contains(&name.as_str()) {
+                continue;
+            }
+            copy_bundle(&path, &dest, root_out, skip_dirs, count, bytes)?;
+        } else if ft.is_file() {
+            std::fs::copy(&path, &dest)?;
+            let sz = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            *count += 1;
+            *bytes += sz;
+            let rel = dest.strip_prefix(root_out).unwrap_or(&dest);
+            println!("  {rel} ({:.1}M)", sz as f64 / 1_048_576.0);
+        }
+        // symlinks intentionally skipped
     }
     Ok(())
 }
