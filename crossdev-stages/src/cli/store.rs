@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::cli::StoreCmd;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::workspace::Workspace;
 
 pub fn run(ws: &Workspace, boards_root: &Utf8Path, cmd: StoreCmd) -> Result<()> {
@@ -31,6 +31,15 @@ fn list(ws: &Workspace) -> Result<()> {
 fn gc(ws: &Workspace, boards_root: &Utf8Path, force: bool) -> Result<()> {
     let entries = walk_store(ws);
     let live = live_set(boards_root)?;
+    // An empty live set means no boards were found (wrong --project-dir?).
+    // Proceeding would classify every store entry as unused and, with
+    // --force, wipe the entire store.
+    if live.is_empty() {
+        return Err(Error::CommandFailed {
+            code: 1,
+            reason: format!("no boards found under {boards_root}; refusing to gc"),
+        });
+    }
 
     let mut unused = Vec::new();
     for e in entries {
