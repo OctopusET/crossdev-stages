@@ -73,7 +73,11 @@ pub async fn run(
                 // Drop any incomplete (non-packed) build dir for this
                 // board so image::build creates a fresh one and
                 // default_checkout pulls the new commits.
-                drop_incomplete_builds(ws, b)?;
+                if dry_run {
+                    println!("[dry-run] would remove incomplete builds and rebuild {b}");
+                } else {
+                    drop_incomplete_builds(ws, b)?;
+                }
                 println!("\n=== Rebuilding {b} ===");
                 crate::cli::image::run_build(
                     ws, boards_root, mirror, dry_run, b,
