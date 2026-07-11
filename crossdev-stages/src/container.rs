@@ -40,6 +40,8 @@ pub struct SandboxRunner {
     scripts_dir: Option<Utf8PathBuf>,
     /// Overlayfs mounts performed inside the container before each command.
     overlays: Vec<OverlaySpec>,
+    /// Extra environment variables layered onto every `run*`/`shell` command.
+    env: Vec<(String, String)>,
 }
 
 impl SandboxRunner {
@@ -51,6 +53,7 @@ impl SandboxRunner {
             extra_ro: vec![],
             scripts_dir: None,
             overlays: vec![],
+            env: vec![],
         }
     }
 
@@ -116,6 +119,13 @@ impl SandboxRunner {
     pub fn with_binpkgs(mut self, binpkgs_dir: &Utf8Path) -> Self {
         self.extra_rw
             .push((binpkgs_dir.to_path_buf(), "/binpkgs".into()));
+        self
+    }
+
+    /// Layer an environment variable onto every command run in the sandbox.
+    /// Applied after the built-in variables, so it can override them.
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
         self
     }
 
@@ -185,6 +195,10 @@ impl SandboxRunner {
             )
             .env("COLORTERM", &std::env::var("COLORTERM").unwrap_or_default())
             .env("NO_COLOR", &std::env::var("NO_COLOR").unwrap_or_default());
+        // Applied after the built-in variables, so they can be overridden.
+        for (k, v) in &self.env {
+            command.env(k, v);
+        }
         command
     }
 
@@ -207,6 +221,9 @@ impl SandboxRunner {
                 &std::env::var("TERM").unwrap_or_else(|_| "xterm".into()),
             )
             .env("COLORTERM", &std::env::var("COLORTERM").unwrap_or_default());
+        for (k, v) in &self.env {
+            command.env(k, v);
+        }
         check_status(command.status()?)
     }
 
