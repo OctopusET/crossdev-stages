@@ -154,7 +154,7 @@ by `uboot`.
 | Variable | Required | Description |
 |---|---|---|
 | `BOARD_NAME` | yes | Board identifier (matches directory name) |
-| `BOARD_ARCH` | yes | Target architecture (`riscv64`, `aarch64`, `i586`, `i686`) |
+| `BOARD_ARCH` | yes | Target architecture (`riscv64`, `aarch64`, `armv7a`, `i586`, `i686`) |
 | `CROSS_COMPILE` | yes | Toolchain prefix (e.g. `riscv64-unknown-linux-gnu-`) |
 | `KERNEL_REPO` | yes | Kernel source repository URL |
 | `KERNEL_DEFCONFIG` | yes | Kernel defconfig name |
