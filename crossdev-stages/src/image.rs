@@ -381,9 +381,31 @@ fn default_assemble(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> {
         board.hostname
     ))?;
 
+    // baselayout's inittab starts a getty on every port some board somewhere
+    // has: `s0`/`s1` on ttyS0/ttyS1, and under "Architecture specific
+    // features" a live `f0` on ttyAMA0.  On a board without that port agetty
+    // exits at once and init respawns it until it gives up ("INIT: Id \"s0\"
+    // respawning too fast", every five minutes, forever).  On a board that
+    // does have it, the stock getty and the board's own both open it and both
+    // print /etc/issue, so the login banner repeats down the screen.
+    //
+    // Disable every getty that is not a virtual terminal.  The VTs stay: tty1
+    // is the framebuffer console on a board with a display, and it costs
+    // nothing on one without.  The board's own serial line is appended below,
+    // and this pass comments out the copy an earlier run of assemble left, so
+    // repeating the step cannot stack up gettys.
+    runner.run(
+        "sed -i -E '/^[^#].*agetty/{/agetty.* tty[0-9]/! s/^/#/}' \
+         /build/gen/root/etc/inittab",
+    )?;
+
     if let (Some(tty), Some(baud)) = (&board.serial_tty, &board.serial_baud) {
+        // -L for the same reason baselayout's own serial lines carry it: a
+        // debug header has no modem control lines, so without CLOCAL the tty
+        // layer hangs the port up on the missing carrier and agetty dies and
+        // respawns once a second, reprinting /etc/issue each time.
         runner.run(&format!(
-            "echo 'x1:12345:respawn:/sbin/agetty {baud} {tty} linux' \
+            "echo 's0:12345:respawn:/sbin/agetty -L {baud} {tty} linux' \
              >> /build/gen/root/etc/inittab"
         ))?;
     }
