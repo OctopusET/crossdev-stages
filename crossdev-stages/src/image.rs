@@ -219,7 +219,11 @@ fn default_deps(
     Ok(())
 }
 
-fn default_checkout(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> {
+fn default_checkout(
+    runner: &SandboxRunner,
+    board: &BoardConfig,
+    boards_root: &Utf8Path,
+) -> Result<()> {
     crate::bootloader::clone_pipeline(runner, board)?;
     if let Some(repo) = &board.firmware_repo {
         let tag = board.effective_firmware_tag(); // FIRMWARE_TAG → U_BOOT_TAG → "main"
@@ -231,7 +235,69 @@ fn default_checkout(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> {
         &board.kernel_tag,
         "/build/linux",
         &format!("linux-{}", board.name),
-    )
+    )?;
+    apply_board_patches(runner, board, boards_root)
+}
+
+/// Apply `boards/<board>/patches/<source>/*.patch` to `/build/<source>`, in
+/// filename order.  `<source>` is a checkout directory name (linux, u-boot,
+/// opensbi, tfa, firmware), so a board declares which tree a patch belongs to
+/// by where it puts the file, and no board script is involved.
+///
+/// Patches for Gentoo packages do not belong here: those go under
+/// `portage-patches/` and are applied by portage's own `eapply_user`.
+fn apply_board_patches(
+    runner: &SandboxRunner,
+    board: &BoardConfig,
+    boards_root: &Utf8Path,
+) -> Result<()> {
+    let patches = boards_root.join(&board.name).join("patches");
+    if !patches.is_dir() {
+        return Ok(());
+    }
+    let mut sources: Vec<String> = std::fs::read_dir(&patches)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    sources.sort();
+
+    for source in sources {
+        let dir = patches.join(&source);
+        let mut files: Vec<String> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".patch") || n.ends_with(".diff"))
+            .collect();
+        files.sort();
+        if files.is_empty() {
+            continue;
+        }
+        for file in files {
+            tracing::info!("Applying {source}/{file}…");
+            // Three states, not two.  `patch --forward` exits 1 both for a
+            // patch that is already applied and for one that does not apply at
+            // all, so it cannot make a rerun safe -- it only makes a real
+            // conflict look like one.  git tells them apart: --check says it
+            // would apply, --reverse --check says it is already in, and
+            // neither means the tree has moved and the build must stop.
+            runner.run(&format!(
+                "set -e\n\
+                 cd /build/{source}\n\
+                 p=/scripts/boards/{board_name}/patches/{source}/{file}\n\
+                 if git apply --check \"$p\" 2>/dev/null; then\n\
+                     git apply \"$p\"\n\
+                 elif git apply --reverse --check \"$p\" 2>/dev/null; then\n\
+                     echo \"already applied: {file}\"\n\
+                 else\n\
+                     echo \"does not apply to this tree: {file}\" >&2\n\
+                     exit 1\n\
+                 fi",
+                board_name = board.name,
+            ))?;
+        }
+    }
+    Ok(())
 }
 
 fn default_bootloader(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> {
@@ -498,7 +564,7 @@ pub fn build(
                 &runner,
                 boards_root,
                 board,
-                |r| default_checkout(r, board),
+                |r| default_checkout(r, board, boards_root),
             ),
             "bootloader" => run_step(
                 "bootloader",
