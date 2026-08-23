@@ -165,6 +165,7 @@ impl Target {
             mirror: None,
             binhost: None,
             pkgdir: None,
+            for_build_host: false,
         }
         .write(&portage_dir)?;
 
