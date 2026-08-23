@@ -2,3 +2,7 @@ lib/__pycache__/
 target/
 k230-build*.log
 *.log
+# Serial boot logs are the evidence a board actually works, so they have to be
+# committable.  This has to come after *.log: git takes the last pattern that
+# matches, so the exception was doing nothing above it.
+!boards/*/evidence/*.log
