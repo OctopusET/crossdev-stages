@@ -246,6 +246,18 @@ fn duplicate_keys(content: &str, path: &Utf8Path) -> Result<()> {
             continue;
         };
         let key = key.trim();
+        // A bash array spreads its elements over following lines, and an
+        // element can itself contain '=' -- WORKAROUND_CFLAGS holds whole
+        // CFLAGS strings, so "-O3 -march=rv64gc -pipe" reads as an
+        // assignment to `"-O3 -march`.  Only a shell variable name is one.
+        if key.is_empty()
+            || !key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || key.starts_with(|c: char| c.is_ascii_digit())
+        {
+            continue;
+        }
         if !seen.insert(key) && !dups.contains(&key) {
             dups.push(key);
         }

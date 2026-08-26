@@ -11,17 +11,22 @@
 //!
 //! [`Method::Flags`] takes the CFLAGS portage recorded for each installed
 //! package and asks the board's own gcc what ISA those flags produce.  Package
-//! granularity, every architecture, and the only measurement here that can
-//! fail a build.
+//! granularity and every architecture, which is the only way an x86 or arm
+//! board gets an answer at all.  Advisory: a RISC-V profile string names the
+//! extensions the profile MANDATES, not the ones the silicon has, so gcc
+//! expands `rv64gc` with `zifencei` and `rva23u64` without it and the
+//! difference is not a missing instruction.  Until a board can state its
+//! capabilities apart from its profile, this half reports and does not judge.
 //!
 //! [`Method::Attributes`] reads `Tag_RISCV_arch` out of each ELF file.  File
-//! granularity and it needs no package database, but RISC-V is the only
-//! architecture that records this -- x86 and arm keep their ISA nowhere in the
-//! file -- and it is advisory only.  A library that dispatches on `getauxval`
-//! compiles its vector path as a separate object with its own `-march`, so the
-//! attribute names extensions the CPU is never asked to execute: libgcrypt and
-//! leancrypto in the riscv64 target do exactly that.  Recorded CFLAGS cannot
-//! make that mistake, because what portage recorded for both is `-O2 -pipe`.
+//! granularity, no package database needed, and RISC-V is the only
+//! architecture that records it -- x86 and arm keep their ISA nowhere in the
+//! file.  This is the half that fails a build, because an attribute is what
+//! the object itself was compiled for.  It has one known false positive: a
+//! library that dispatches on `getauxval` compiles its vector path as a
+//! separate object with its own `-march`, so libgcrypt and leancrypto name
+//! extensions the CPU is never asked to execute.  `ISA_STRICT="false"` is the
+//! escape hatch for a board that ships one.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -483,7 +488,18 @@ pub fn print(report: &Report, root: &Utf8Path) -> bool {
             if r.findings.is_empty() {
                 println!("    every package matches the board");
             } else {
-                fatal = print_findings(&r.findings, "packages");
+                // Advisory, and it has to stay advisory until the board's
+                // capabilities can be told apart from its profile.  A RISC-V
+                // profile string names what the profile MANDATES, not what the
+                // silicon has: gcc 16.2.1 expands `rv64gc` with `zifencei` and
+                // `rva23u64` without it, because RVA23 dropped Zifencei from
+                // the mandatory list.  Comparing the two as capability sets
+                // reports 148 of the 379 packages in the riscv64 target as
+                // using an extension boards/k3 "does not have", and
+                // disassembling that target's 2044 ELF files finds no `fence.i`
+                // at all.  Failing a build on that would be the measurement
+                // layer being wrong, which is the one thing it may not be.
+                print_findings(&r.findings, "packages");
             }
             if !r.unresolved.is_empty() {
                 // Not a pass either: the toolchain refused the question.
@@ -522,9 +538,16 @@ pub fn print(report: &Report, root: &Utf8Path) -> bool {
             } else if r.findings.is_empty() {
                 println!("    every binary matches the board");
             } else {
-                // Advisory whatever it says: an extension here can be a
-                // runtime-dispatched path that the CPU never enters.
-                print_findings(&r.findings, "binaries");
+                // This half is what fails a build, as it did before the flags
+                // half existed: an ELF attribute naming an extension the board
+                // lacks is the case that killed the rv32 board on the hardware.
+                // Its own false positive is narrower and known -- a library
+                // that dispatches on `getauxval` compiles its vector path as a
+                // separate object with its own `-march`, so libgcrypt and
+                // leancrypto name extensions the CPU is never asked to run --
+                // and `ISA_STRICT="false"` is the escape hatch for a board that
+                // ships one.
+                fatal = print_findings(&r.findings, "binaries");
             }
         }
         None => println!(

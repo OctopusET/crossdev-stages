@@ -485,25 +485,36 @@ hits an illegal instruction.
 `assemble` therefore measures the image twice, and the two measurements are not
 interchangeable.
 
-**flags**, on every architecture and the only one that can fail a build. For
-every installed package portage recorded the CFLAGS it was built with; those
-`-m` flags go back through the board's own gcc, and so do the board's own, so
-both sides are always in that compiler's vocabulary and there is no table to
-keep in step -- `-march=rva23u64` and `-march=x86-64-v3` expand the way it
-expands them. A package using an extension the board lacks is an error: it
-faults on the hardware, so the build stops. `ISA_STRICT="false"` downgrades it
-to a warning while a board is being brought up. A package merely built without
-some of the board's extensions is reported as slower, not broken. A package
-that installs no ELF file cannot fault and is not counted; flags the toolchain
-refuses are reported as unverified, which is not a pass either.
+**flags**, on every architecture, and advisory. For every installed package
+portage recorded the CFLAGS it was built with; those `-m` flags go back through
+the board's own gcc, and so do the board's own, so both sides are always in
+that compiler's vocabulary and there is no table to keep in step. It is the
+only way an x86 or arm board gets an answer at all, because neither records an
+ISA in the file.
 
-**attributes**, on RISC-V only, and advisory. `Tag_RISCV_arch` names the ISA
-per file rather than per package, and it works on a rootfs portage did not
-build. But a library that dispatches on `getauxval` compiles its vector path as
-a separate object with its own `-march`, so the attribute names extensions the
-CPU is never asked to execute -- libgcrypt and leancrypto in the riscv64 target
-do exactly that, and portage recorded `-O2 -pipe` for both. This half reports;
-it never fails a build.
+It reports rather than judges, and the reason is a RISC-V profile string. A
+profile names the extensions it MANDATES, not the ones the silicon has: gcc
+16.2.1 expands `rv64gc` with `zifencei` and `rva23u64` without it, because
+RVA23 dropped Zifencei from the mandatory list. Compared as capability sets
+that makes 148 of the 379 packages in the riscv64 target look like they use
+something `boards/k3` lacks, and disassembling that target's 2044 ELF files
+finds no `fence.i` at all. Failing a build on that would be the measurement
+layer being wrong, which is the one thing it may not be. A package that
+installs no ELF file is not counted; flags the toolchain refuses are reported
+as unverified, which is not a pass either.
+
+**attributes**, on RISC-V only, and the half that fails a build. `Tag_RISCV_arch`
+names the ISA per file rather than per package, and it works on a rootfs portage
+did not build. A binary using an extension the board lacks is an error: it
+faults on the hardware, so the build stops. `ISA_STRICT="false"` downgrades it
+to a warning while a board is being brought up. A binary merely built without
+some of the board's extensions is reported as slower, not broken.
+
+Its known false positive is narrow: a library that dispatches on `getauxval`
+compiles its vector path as a separate object with its own `-march`, so the
+attribute names extensions the CPU is never asked to execute. libgcrypt and
+leancrypto in the riscv64 target do exactly that, and portage recorded
+`-O2 -pipe` for both, which is why the flags half is worth reading beside it.
 
 The same scan runs on demand against an existing build or target stage:
 
@@ -513,9 +524,10 @@ crossdev-stages verify --board k230 --strict
 ```
 
 RISC-V is the only architecture that records its ISA in the ELF, which is why
-the flags side is the one that decides: an `-march=x86-64-v3` binary full of
-AVX2 still declares `x86-64-baseline` in its `.note.gnu.property`, and an
-aarch64 binary built `+crypto` declares nothing at all.
+it is the only one a build can be stopped on: an `-march=x86-64-v3` binary full
+of AVX2 still declares `x86-64-baseline` in its `.note.gnu.property`, and an
+aarch64 binary built `+crypto` declares nothing at all. Everywhere else the
+flags half is what there is, and it reports.
 
 ### Partition identifiers
 
