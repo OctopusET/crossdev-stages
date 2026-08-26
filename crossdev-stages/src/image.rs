@@ -2449,7 +2449,7 @@ pub fn build(
             }
         }
 
-        if *step == "assemble" && crate::isa::applies(board) {
+        if *step == "assemble" {
             match crate::isa::verify(&runner, board, "/build/gen/root") {
                 Ok(report) => {
                     let illegal = crate::isa::print(&report, Utf8Path::new("/build/gen/root"));

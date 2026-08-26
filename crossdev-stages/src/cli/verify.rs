@@ -44,10 +44,9 @@ pub fn run(
     let abi = crate::abi::verify(&runner, root, &format!("{}readelf", board_cfg.cross_compile))?;
     let mut fatal = crate::abi::print(&abi);
 
-    if isa::applies(&board_cfg) {
-        let report = isa::verify(&runner, &board_cfg, root)?;
-        fatal |= isa::print(&report, Utf8Path::new(root));
-    }
+    // Every architecture: was any of it built for a CPU this board is not?
+    let report = isa::verify(&runner, &board_cfg, root)?;
+    fatal |= isa::print(&report, Utf8Path::new(root));
 
     if fatal && strict {
         return Err(crate::error::Error::CommandFailed {

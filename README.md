@@ -482,14 +482,28 @@ CPU_FLAGS_X86. It never matches CFLAGS, so a package built for one board
 installs into another that cannot run it and nothing says so until the hardware
 hits an illegal instruction.
 
-`assemble` therefore reads `Tag_RISCV_arch` out of every ELF file in the image
-and compares it against what the board's own toolchain emits -- obtained by
-compiling an empty file with the board's CFLAGS, so `-march=rv64gcv_zvl256b`
-and `-march=rva23u64` expand exactly the way that compiler expands them, with
-no table to keep in step. A binary using an extension the board lacks is
-an error: it faults on the hardware, so the build stops. `ISA_STRICT="false"`
-downgrades it to a warning while a board is being brought up. A binary merely built
-without some of the board's extensions is reported as slower, not broken.
+`assemble` therefore measures the image twice, and the two measurements are not
+interchangeable.
+
+**flags**, on every architecture and the only one that can fail a build. For
+every installed package portage recorded the CFLAGS it was built with; those
+`-m` flags go back through the board's own gcc, and so do the board's own, so
+both sides are always in that compiler's vocabulary and there is no table to
+keep in step -- `-march=rva23u64` and `-march=x86-64-v3` expand the way it
+expands them. A package using an extension the board lacks is an error: it
+faults on the hardware, so the build stops. `ISA_STRICT="false"` downgrades it
+to a warning while a board is being brought up. A package merely built without
+some of the board's extensions is reported as slower, not broken. A package
+that installs no ELF file cannot fault and is not counted; flags the toolchain
+refuses are reported as unverified, which is not a pass either.
+
+**attributes**, on RISC-V only, and advisory. `Tag_RISCV_arch` names the ISA
+per file rather than per package, and it works on a rootfs portage did not
+build. But a library that dispatches on `getauxval` compiles its vector path as
+a separate object with its own `-march`, so the attribute names extensions the
+CPU is never asked to execute -- libgcrypt and leancrypto in the riscv64 target
+do exactly that, and portage recorded `-O2 -pipe` for both. This half reports;
+it never fails a build.
 
 The same scan runs on demand against an existing build or target stage:
 
@@ -498,8 +512,10 @@ crossdev-stages verify --board k230
 crossdev-stages verify --board k230 --strict
 ```
 
-RISC-V only: it is the architecture that records its ISA in the ELF and has
-extensions a board can genuinely lack.
+RISC-V is the only architecture that records its ISA in the ELF, which is why
+the flags side is the one that decides: an `-march=x86-64-v3` binary full of
+AVX2 still declares `x86-64-baseline` in its `.note.gnu.property`, and an
+aarch64 binary built `+crypto` declares nothing at all.
 
 ### Partition identifiers
 
