@@ -1615,6 +1615,8 @@ fn kernel_config_fragments(board: &BoardConfig) -> String {
     if board.kernel_config_fragments.is_empty() {
         return String::new();
     }
+    let karch = board.kernel_arch.as_deref().unwrap_or_default();
+    let cc = &board.cross_compile;
     let mut out = String::new();
     for name in &board.kernel_config_fragments {
         out.push_str(&format!(
@@ -1627,9 +1629,14 @@ fn kernel_config_fragments(board: &BoardConfig) -> String {
         ));
     }
     format!(
+        // ARCH and CROSS_COMPILE spelled out, not $ARCH and $CROSS_COMPILE:
+        // this script runs as its own `sh -c`, so a shell variable set by the
+        // caller is not there, and make would take an empty ARCH and die on
+        // `arch//Makefile`.  Nothing caught it because no board used
+        // KERNEL_CONFIG_FRAGMENTS until dell-dimension-4100.
         "frags=\n\
          {out}\
-         make -C /build/linux ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig\n\
+         make -C /build/linux ARCH={karch} CROSS_COMPILE={cc} olddefconfig\n\
          for f in $frags; do\n\
              while read -r line; do\n\
                  case \"$line\" in\n\
