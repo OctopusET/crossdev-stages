@@ -213,7 +213,11 @@ impl Sandbox {
         board: &BoardConfig,
         gcc_version: Option<&str>,
     ) -> Result<()> {
-        let chost = crate::stage::chost_for_arch(target_arch)?;
+        // board.chost(), not chost_for_arch(arch): a board may override CHOST,
+        // and everything downstream already honours it -- the store path, the
+        // binpkg dir, cross_emerge, the manifest.  Deriving it again here
+        // would build the prefix under one name and look for it under another.
+        let chost = board.chost();
         let cflags = board.effective_cflags();
         let (_canonical, hash) = crate::cflags::canonicalize(&cflags);
 
@@ -445,23 +449,26 @@ impl Sandbox {
     ) -> Result<SandboxRunner> {
         let hash = crate::cflags::toolchain_key(board);
         let gcc_spec = self.gcc_spec_for(board, None)?;
-        self.runner_for_chost(ws, target_arch, &hash, &gcc_spec)
+        self.runner_for_chost(ws, target_arch, &board.chost(), &hash, &gcc_spec)
     }
 
     /// Lower-level variant of [`Self::runner_for_board`] that takes the
-    /// cflags-hash and gcc spec directly.  Useful for target operations
-    /// that don't have a board, only an arch (e.g. `target stage1`).
+    /// chost, cflags-hash and gcc spec directly.  Useful for target
+    /// operations that don't have a board, only an arch (e.g. `target
+    /// stage1`), which is also why the chost is passed rather than derived:
+    /// a board that overrides CHOST keys its store under that name, and this
+    /// function cannot see the board to know.
     pub fn runner_for_chost(
         &self,
         ws: &Workspace,
         target_arch: &str,
+        chost: &str,
         cflags_hash: &str,
         gcc_spec: &str,
     ) -> Result<SandboxRunner> {
-        let chost = crate::stage::chost_for_arch(target_arch)?;
         let store_dir = ws
             .store_dir()
-            .join(store_key(&chost, cflags_hash, gcc_spec));
+            .join(store_key(chost, cflags_hash, gcc_spec));
         if !store_dir.join(".complete").exists() {
             return Err(Error::CommandFailed {
                 code: 1,

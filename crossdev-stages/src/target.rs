@@ -88,7 +88,7 @@ impl Target {
         self.prepare_portage_with_cflags(ws, &chost, cflags, &gcc_spec)?;
 
         let runner = sandbox
-            .runner_for_chost(ws, &self.arch, &hash, &gcc_spec)?
+            .runner_for_chost(ws, &self.arch, &chost, &hash, &gcc_spec)?
             .with_target(&self.dir)
             .with_binpkgs(&binpkgs_dir);
         tracing::info!("Logs at: {}", runner.log_dir());
@@ -129,7 +129,7 @@ impl Target {
         let binpkgs_dir = ws.binpkgs_dir().join(&chost).join(&hash);
         std::fs::create_dir_all(&binpkgs_dir)?;
         let runner = sandbox
-            .runner_for_chost(ws, &self.arch, &hash, &gcc_spec)?
+            .runner_for_chost(ws, &self.arch, &chost, &hash, &gcc_spec)?
             .with_target(&self.dir)
             .with_binpkgs(&binpkgs_dir);
         let portage = Portage::new(&runner);
@@ -163,7 +163,7 @@ impl Target {
         let binpkgs_dir = ws.binpkgs_dir().join(&chost).join(&hash);
         std::fs::create_dir_all(&binpkgs_dir)?;
         let runner = sandbox
-            .runner_for_chost(ws, &self.arch, &hash, &gcc_spec)?
+            .runner_for_chost(ws, &self.arch, &chost, &hash, &gcc_spec)?
             .with_target(&self.dir)
             .with_binpkgs(&binpkgs_dir);
         let portage = Portage::new(&runner);
@@ -173,10 +173,11 @@ impl Target {
     /// Run `ldconfig` inside the target stage.
     pub fn update_ldconfig(&self, ws: &Workspace, sandbox: &Sandbox) -> Result<()> {
         tracing::info!("Updating ldconfig in target…");
+        let chost = chost_for_arch(&self.arch)?;
         let (_, hash) = crate::cflags::canonicalize(default_cflags(&self.arch));
         let gcc_spec = sandbox.default_gcc_spec()?;
         let runner = sandbox
-            .runner_for_chost(ws, &self.arch, &hash, &gcc_spec)?
+            .runner_for_chost(ws, &self.arch, &chost, &hash, &gcc_spec)?
             .with_target(&self.dir);
         runner.run("ldconfig -v -r /target")
     }
