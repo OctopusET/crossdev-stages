@@ -1,0 +1,5 @@
+# git turns its rust half on by default now, and dev-lang/rust's i686 target
+# sets base.cpu = "pentium4" -- an SSE2 baseline this board does not have.
+# Gentoo states that as REQUIRED_USE="x86? ( cpu_flags_x86_sse2 )" and refuses,
+# which is the right answer: the alternative is a git that faults on boot.
+dev-vcs/git -rust
