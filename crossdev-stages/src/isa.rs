@@ -34,7 +34,7 @@ use camino::Utf8Path;
 
 use crate::board::BoardConfig;
 use crate::container::SandboxRunner;
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// How a set of extensions was measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +258,32 @@ fn probe(runner: &SandboxRunner, board: &BoardConfig, flags: &str) -> Result<BTr
     }
 }
 
+/// Refuse to report on an image the reader cannot open.
+///
+/// Every scan here is `<cross>readelf`, and when that name is missing the
+/// scans return nothing, `scanned` is 0, and the report says "nothing was
+/// verified" while `fatal` stays false -- so the image ships unchecked.
+/// The name can go missing for an ordinary reason: on a host whose CHOST is
+/// the board's, `/usr/<chost>` is gcc-config's own directory and anything
+/// mounted over it takes the binutils symlinks with it.  A silent pass is
+/// the worst answer this check can give, so make it an error instead.
+fn require_readelf(runner: &SandboxRunner, cross: &str) -> Result<()> {
+    let found = runner.run_output(&format!(
+        "command -v {cross}readelf >/dev/null 2>&1 && echo yes || true"
+    ))?;
+    if found.trim() == "yes" {
+        return Ok(());
+    }
+    Err(Error::CommandFailed {
+        code: 1,
+        reason: format!(
+            "{cross}readelf is not on PATH, so nothing about this image can be \
+             measured.  A report of \"nothing was verified\" would pass a build \
+             that was never checked."
+        ),
+    })
+}
+
 /// Read `Tag_RISCV_arch` out of every ELF file under `root`.
 ///
 /// One shell loop rather than one container per file: a rootfs holds thousands
@@ -276,6 +302,7 @@ fn scan(runner: &SandboxRunner, root: &str, cross: &str) -> Result<Vec<(String, 
 
 /// Compare everything under `root` against what the board's toolchain emits.
 pub fn verify(runner: &SandboxRunner, board: &BoardConfig, root: &str) -> Result<Report> {
+    require_readelf(runner, &board.cross_compile)?;
     let machine = machine_flags(&board.effective_cflags());
     let expected = probe(runner, board, &machine)?;
     let attrs = if attrs_apply(&board.arch) {
