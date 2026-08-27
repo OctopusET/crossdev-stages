@@ -74,6 +74,10 @@ pub enum Commands {
         /// Target name (default: most-recently-modified).
         #[arg(long, global = true)]
         target: Option<String>,
+        /// Board whose CHOST, CFLAGS and gcc decide what is built
+        /// (default: the arch baseline; most boards declare their own).
+        #[arg(long, global = true)]
+        board: Option<String>,
         #[command(subcommand)]
         command: TargetCmd,
     },

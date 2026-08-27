@@ -68,7 +68,7 @@ Options:
 crossdev-stages board list
 
 # Inspect a board configuration
-crossdev-stages board info --board <BOARD>
+crossdev-stages board info <BOARD>
 
 # Set up host sandbox
 crossdev-stages sandbox setup
@@ -76,8 +76,11 @@ crossdev-stages sandbox prepare
 crossdev-stages sandbox crossdev --arch <ARCH> --board <BOARD>
 
 # Create target stage from a stage3 seed
-# (--board bakes the board's CFLAGS into the target make.conf, so
-#  @system/@world rebuilds use them; omit for the arch baseline)
+# (--board decides CHOST, CFLAGS and gcc, so the work lands in the same
+#  toolchain store and binary package cache that board's image build reads,
+#  and the target make.conf says what it was built with. Without it the arch
+#  baseline is used, which most boards do not declare; either way the flags are
+#  logged before anything is compiled.)
 crossdev-stages target setup --arch <ARCH>
 crossdev-stages target stage1 --board <BOARD>
 crossdev-stages target update --board <BOARD>

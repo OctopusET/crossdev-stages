@@ -84,12 +84,20 @@ under `targets/<name>/` and mounted read-write at `/target` inside the
 sandbox container during cross-emerge.  Provides:
 
 - `create(ws, name, arch, source_stage)` — unpack a stage3 as the starting point.
-- `build_stage1(sandbox)` — bootstrap: cross-emerge `baselayout`,
+- `build_stage1(sandbox, board)` — bootstrap: cross-emerge `baselayout`,
   `packages.build`, `portage`.  Writes `.stage1` marker when complete.
-- `update(sandbox)` — update the crossdev prefix toolchain then rebuild
+- `update(sandbox, board)` — update the crossdev prefix toolchain then rebuild
   `@world` in the target stage.
-- `install(sandbox, packages)` — cross-emerge specific packages into the
+- `install(sandbox, board, packages)` — cross-emerge specific packages into the
   target stage.
+
+`board` is `--board` on every `target` subcommand, and it decides what gets
+built: CHOST, CFLAGS and the gcc spec, and through them which store entry and
+which binary package cache the work lands in, the same ones an `image build`
+of that board resolves.  It is optional because a target can exist without a
+board, not because the choice is unimportant: passed `None`, these operations
+key on the arch defaults, which most boards do not declare, so the resolved key is
+logged before any of it is compiled.
 
 ### `SandboxRunner`
 

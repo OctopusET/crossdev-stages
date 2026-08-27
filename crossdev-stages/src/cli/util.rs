@@ -48,11 +48,17 @@ pub async fn ensure_crossdev(
 
 /// Ensure the target exists (fetching + unpacking a stage3 if needed) and
 /// that the sandbox has crossdev set up for its arch.  Returns (Target, Sandbox).
+///
+/// `board` is what the prefix is built for.  Without one the crossdev prefix
+/// is keyed by the arch defaults, which is the only honest key when nothing
+/// declares another -- and the wrong one to spend a rebuild on when a board
+/// does, which is why every target subcommand takes `--board`.
 pub async fn ensure_target(
     ws: &Workspace,
     target_name: Option<&str>,
     arch_override: Option<&str>,
     sandbox_name: Option<&str>,
+    board: Option<&board::BoardConfig>,
     defaults_root: &Utf8Path,
     mirror: Option<&str>,
 ) -> Result<(target::Target, sandbox::Sandbox)> {
@@ -85,11 +91,12 @@ pub async fn ensure_target(
             (tgt, arch.to_string())
         }
     };
+    let fallback = default_board_config(&resolved_arch);
     let sb = ensure_crossdev(
         ws,
         sandbox_name,
         &resolved_arch,
-        &default_board_config(&resolved_arch),
+        board.unwrap_or(&fallback),
         defaults_root,
         mirror,
         None,

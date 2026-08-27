@@ -1,18 +1,32 @@
 use crate::cli::util::{default_board_config, ensure_crossdev, ensure_target};
 use crate::cli::TargetCmd;
 use crate::error::Result;
-use crate::{container, stage, target, workspace::Workspace};
+use crate::{board, container, stage, target, workspace::Workspace};
 use camino::{Utf8Path, Utf8PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     ws: &Workspace,
     arch: Option<String>,
     sandbox: Option<String>,
     target_name: Option<String>,
+    board_name: Option<String>,
     cmd: TargetCmd,
+    boards_root: &Utf8Path,
     defaults_root: &Utf8Path,
     mirror: Option<&str>,
 ) -> Result<()> {
+    // Loaded once, up front: a board that does not parse must not be found
+    // out after a stage3 has been fetched and unpacked.
+    let board_cfg = match &board_name {
+        Some(name) => Some(board::load(boards_root, name)?),
+        None => None,
+    };
+    let board = board_cfg.as_ref();
+    // A board names its own arch; --arch stays for the boardless case and
+    // still wins when both are given, so nothing that worked stops working.
+    let arch = arch.or_else(|| board.map(|b| b.arch.clone()));
+
     match cmd {
         TargetCmd::List => {
             for t in target::list(ws)? {
@@ -47,11 +61,12 @@ pub async fn run(
             });
             target::Target::create(ws, &name, &resolved_arch, &source_stage)?;
             println!("Target '{name}' created.");
+            let fallback = default_board_config(&resolved_arch);
             ensure_crossdev(
                 ws,
                 sandbox.as_deref(),
                 &resolved_arch,
-                &default_board_config(&resolved_arch),
+                board.unwrap_or(&fallback),
                 defaults_root,
                 mirror,
                 None,
@@ -64,11 +79,12 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                board,
                 defaults_root,
                 mirror,
             )
             .await?;
-            tgt.build_stage1(ws, &sb)?;
+            tgt.build_stage1(ws, &sb, board)?;
         }
         TargetCmd::Update => {
             let (tgt, sb) = ensure_target(
@@ -76,11 +92,12 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                board,
                 defaults_root,
                 mirror,
             )
             .await?;
-            tgt.update(ws, &sb)?;
+            tgt.update(ws, &sb, board)?;
         }
         TargetCmd::Install { packages } => {
             let (tgt, sb) = ensure_target(
@@ -88,12 +105,13 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                board,
                 defaults_root,
                 mirror,
             )
             .await?;
             let pkgs: Vec<&str> = packages.iter().map(String::as_str).collect();
-            tgt.install(ws, &sb, &pkgs)?;
+            tgt.install(ws, &sb, board, &pkgs)?;
         }
         TargetCmd::Ldconfig => {
             let (tgt, sb) = ensure_target(
@@ -101,11 +119,12 @@ pub async fn run(
                 target_name.as_deref(),
                 arch.as_deref(),
                 sandbox.as_deref(),
+                board,
                 defaults_root,
                 mirror,
             )
             .await?;
-            tgt.update_ldconfig(ws, &sb)?;
+            tgt.update_ldconfig(ws, &sb, board)?;
         }
         TargetCmd::Destroy { name } => {
             target::destroy(ws, &name)?;
