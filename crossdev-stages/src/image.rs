@@ -1907,6 +1907,34 @@ fn default_assemble(
             runner.run(&format!(
                 "cp /build/linux/arch/{karch}/boot/{kname} /build/gen/boot/"
             ))?;
+
+            // A second copy of the same kernel, this one inside the rootfs.
+            // Nothing on the board reads it: the bootloader reads the boot
+            // partition, and on a board that mounts that partition at /boot
+            // this file is not even visible once the system is up.  It is
+            // there for whoever mounts this root filesystem from outside.
+            //
+            // os-prober's last probe, 90fallback, is the only one that can
+            // describe an image like ours, and it globs the mounted root for
+            // /vmlinuz*, /boot/vmlinuz*, /kernel-* and the vmlinux spellings
+            // of those, taking regular files only.  "bzImage" is not a name
+            // it looks for, and the boot partition is not a filesystem it
+            // mounts (fstab names it by PARTUUID, which os-prober's fstab
+            // parser cannot resolve).  It builds root= from the device it
+            // probed rather than from anything we write, so this one file is
+            // the whole of what another Linux's update-grub needs.
+            //
+            // No initramfs is copied beside it: a board sets BOOT_OS_PROBER
+            // only when its kernel reaches root= with built-in drivers.
+            if board.os_prober {
+                runner.run(&format!(
+                    "kver=$(ls /build/gen/root/lib/modules/ | head -1) && \
+                     [ -n \"$kver\" ] && \
+                     mkdir -p /build/gen/root/boot && \
+                     cp /build/linux/arch/{karch}/boot/{kname} \
+                        /build/gen/root/boot/vmlinuz-$kver"
+                ))?;
+            }
         }
     } else if board.rootfs_provider == RootfsProvider::Buildroot {
         buildroot_boot_artifacts(runner, board)?;

@@ -124,6 +124,13 @@ pub struct BoardConfig {
     /// BOOT_DTB_NAME: the device tree to boot, when BOARD_DTB_GLOB names more
     /// than one file and the board has to say which.
     pub dtb_name: Option<String>,
+    /// BOOT_OS_PROBER: install the kernel a second time, inside the rootfs,
+    /// as `/boot/vmlinuz-<kver>`.  os-prober's fallback probe globs the
+    /// mounted root filesystem for `vmlinuz*` / `vmlinux*` and skips
+    /// symlinks, so a board whose only kernel is a `bzImage` on a boot
+    /// partition it never mounts reads as a Linux install with no way to
+    /// boot it, and another Linux's `update-grub` writes no entry for it.
+    pub os_prober: bool,
 
     /// ISA_STRICT: fail the build when a binary uses an ISA extension this
     /// board does not have.  On by default -- such a binary faults on the
@@ -521,6 +528,10 @@ fn parse(name: &str, path: &Utf8Path, content: &str) -> Result<BoardConfig> {
             .unwrap_or(false),
         append: kv.get("BOOT_APPEND").cloned(),
         dtb_name: kv.get("BOOT_DTB_NAME").cloned(),
+        os_prober: kv
+            .get("BOOT_OS_PROBER")
+            .map(|v| v == "true" || v == "yes" || v == "1")
+            .unwrap_or(false),
         isa_strict: kv
             .get("ISA_STRICT")
             .map(|v| !(v == "false" || v == "no" || v == "0"))
@@ -720,5 +731,13 @@ mod tests {
         // and a board overriding it never reach this function together.
         duplicate_keys("BOARD_CFLAGS=\"-O2\"\n", Utf8Path::new("include.conf")).unwrap();
         duplicate_keys("BOARD_CFLAGS=\"-O3\"\n", Utf8Path::new("board.conf")).unwrap();
+    }
+
+    /// The second kernel copy is opt-in: a board that says nothing ships the
+    /// rootfs it shipped before the key existed.
+    #[test]
+    fn the_rootfs_kernel_copy_is_opt_in() {
+        assert!(!parse_conf("").unwrap().os_prober);
+        assert!(parse_conf("BOOT_OS_PROBER=\"true\"\n").unwrap().os_prober);
     }
 }

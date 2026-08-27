@@ -254,6 +254,7 @@ by `uboot`.
 | `BOOT_EXTLINUX` | no | `true` makes `assemble` write `/extlinux/extlinux.conf` |
 | `BOOT_APPEND` | no | Kernel arguments added to that entry |
 | `BOOT_DTB_NAME` | no | DTB to boot, when `BOARD_DTB_GLOB` matches more than one |
+| `BOOT_OS_PROBER` | no | Also install the kernel in the rootfs as `/boot/vmlinuz-<kver>`, the name os-prober needs to see (default: no) |
 | `ISA_STRICT` | no | `false` downgrades an unrunnable binary to a warning (default: fail) |
 | `ROOTFS_PROVIDER` | no | Who fills the image rootfs: `gentoo` (default; stage3 + cross-emerge + OpenRC), `debian` or `ubuntu` (debootstrap + systemd), `alpine` (apk + OpenRC), `fedora` (container base image + dnf5 + systemd), `buildroot` (defconfig build), or `none` (board hooks own it) |
 | `ROOTFS_REBUILD` | no | gentoo provider: how much of the stage3 seed to rebuild with the board's CFLAGS: `none` (default, keep it as it came), `system`, `world` |
