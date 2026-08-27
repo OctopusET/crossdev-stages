@@ -173,7 +173,6 @@ pub fn default_board_config(arch: &str) -> board::BoardConfig {
         serial_tty: None,
         serial_baud: None,
         kernel_name: None,
-        ramdisk_name: None,
         extlinux: false,
         append: None,
         dtb_name: None,

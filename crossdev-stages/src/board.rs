@@ -112,7 +112,6 @@ pub struct BoardConfig {
     pub serial_tty: Option<String>,
     pub serial_baud: Option<String>,
     pub kernel_name: Option<String>,
-    pub ramdisk_name: Option<String>,
     pub loglevel: Option<String>,
 
     /// BOOT_EXTLINUX: this board boots through an extlinux.conf, so `assemble`
@@ -519,7 +518,6 @@ fn parse(name: &str, path: &Utf8Path, content: &str) -> Result<BoardConfig> {
         serial_tty: kv.get("BOOT_SERIAL_TTY").cloned(),
         serial_baud: kv.get("BOOT_SERIAL_BAUD").cloned(),
         kernel_name: kv.get("BOOT_KERNEL_NAME").cloned(),
-        ramdisk_name: kv.get("BOOT_RAMDISK_NAME").cloned(),
         loglevel: kv.get("BOOT_LOGLEVEL").cloned(),
 
         extlinux: kv
