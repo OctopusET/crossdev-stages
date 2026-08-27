@@ -104,6 +104,103 @@ fn attrs_apply(arch: &str) -> bool {
     arch.starts_with("riscv")
 }
 
+/// Whether this architecture writes a *required* ISA level into the ELF file.
+///
+/// x86 does, as `GNU_PROPERTY_X86_ISA_1_NEEDED`, and unlike a RISC-V
+/// attribute it is enforced at run time: glibc's loader refuses the binary
+/// with "CPU ISA level is lower than required".  `x86-64-baseline` means
+/// SSE2, which a Pentium III does not have -- so this is the same layer as
+/// the RISC-V attributes, the one allowed to fail a build.
+fn x86_level_applies(arch: &str) -> bool {
+    matches!(arch, "i386" | "i486" | "i586" | "i686" | "x86" | "x86_64" | "amd64")
+}
+
+/// The x86-64 levels, in order, and the predefined macro that says the
+/// board's `-march` reaches each one.  A binary needing a level needs every
+/// level below it too.
+const X86_LEVELS: &[(&str, &str)] = &[
+    ("x86-64-baseline", "__SSE2__"),
+    ("x86-64-v2", "__SSE4_2__"),
+    ("x86-64-v3", "__AVX2__"),
+    ("x86-64-v4", "__AVX512F__"),
+];
+
+/// `x86 ISA needed` of every ELF file under `root`, `none` where unmarked.
+///
+/// Every ELF is reported, marked or not: unlike `Tag_RISCV_arch`, a clean
+/// x86 binary carries no level at all, so counting only the marked ones
+/// made a clean image read as one where nothing was checked.
+fn scan_x86_level(runner: &SandboxRunner, root: &str, cross: &str) -> Result<Vec<(String, String)>> {
+    let out = runner.run_output(&format!(
+        "find {root} -type f \\( -perm -u+x -o -name '*.so' -o -name '*.so.*' \\) -print0 \\
+         | xargs -0 -r -n 1 sh -c '
+             n=$({cross}readelf -n \"$0\" 2>/dev/null) || exit 0
+             a=$(printf \"%s\" \"$n\" | sed -n \"s/.*x86 ISA needed: //p\" | head -n 1)
+             printf \"%s\\t%s\\n\" \"$0\" \"${{a:-none}}\"'"
+    ))?;
+    Ok(parse_records(&out))
+}
+
+/// What `level` demands that the board's `-march` does not provide.
+///
+/// A level implies every level below it, so the answer is the prefix up to
+/// the highest one named, minus whatever the board already reaches.
+fn x86_missing(level: &str, expected: &BTreeSet<String>) -> BTreeSet<String> {
+    let Some(top) = X86_LEVELS
+        .iter()
+        .rposition(|(name, _)| level.split(',').any(|l| l.trim() == *name))
+    else {
+        return BTreeSet::new();
+    };
+    X86_LEVELS[..=top]
+        .iter()
+        .filter(|(_, macro_name)| !expected.contains(*macro_name))
+        .map(|(_, macro_name)| macro_name.trim_matches('_').to_ascii_lowercase())
+        .collect()
+}
+
+/// Findings for every binary demanding an ISA level this board cannot run.
+fn x86_report(
+    runner: &SandboxRunner,
+    board: &BoardConfig,
+    root: &str,
+    expected: &BTreeSet<String>,
+) -> Result<AttrReport> {
+    let found = scan_x86_level(runner, root, &board.cross_compile)?;
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (path, level) in found.iter().filter(|(_, l)| l.trim() != "none") {
+        groups.entry(level.trim().to_string()).or_default().push(path.clone());
+    }
+
+    let mut findings = Vec::new();
+    for (level, paths) in groups {
+        let extra = x86_missing(&level, expected);
+        if !extra.is_empty() {
+            findings.push(finding(extra, BTreeSet::new(), paths));
+        }
+    }
+    sort_findings(&mut findings);
+
+    // The header prints this, and for x86 `expected` is every predefined
+    // macro the compiler has -- hundreds of lines about float formats.  Keep
+    // the ones that name an instruction set.
+    let shown: BTreeSet<String> = expected
+        .iter()
+        .filter(|m| {
+            ["SSE", "MMX", "AVX", "FXSR", "F16C", "BMI", "POPCNT", "FMA", "AES"]
+                .iter()
+                .any(|k| m.contains(k))
+        })
+        .cloned()
+        .collect();
+
+    Ok(AttrReport {
+        expected: shown,
+        scanned: found.len(),
+        findings,
+    })
+}
+
 /// `cat/pkg<TAB>CFLAGS` for every package portage recorded installing.
 ///
 /// One awk over the glob rather than a shell loop: a target holds hundreds of
@@ -183,6 +280,8 @@ pub fn verify(runner: &SandboxRunner, board: &BoardConfig, root: &str) -> Result
     let expected = probe(runner, board, &machine)?;
     let attrs = if attrs_apply(&board.arch) {
         Some(attr_report(runner, board, root, &expected)?)
+    } else if x86_level_applies(&board.arch) {
+        Some(x86_report(runner, board, root, &expected)?)
     } else {
         None
     };
@@ -561,7 +660,47 @@ pub fn print(report: &Report, root: &Utf8Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{machine_flags, parse_arch, parse_macros, parse_records, strip_version};
+    use super::{
+        machine_flags, parse_arch, parse_macros, parse_records, strip_version, x86_missing,
+    };
+    use std::collections::BTreeSet;
+
+    fn macros(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The measurement this exists for.  Every binary the native-ABI route
+    /// linked came out marked `x86 ISA needed: x86-64-baseline`, because the
+    /// startfiles came from the build host's 32-bit multilib rather than the
+    /// prefix, and glibc's loader refuses those on a Pentium III with "CPU
+    /// ISA level is lower than required".
+    #[test]
+    fn a_pentium3_cannot_run_the_x86_64_baseline() {
+        let p3 = macros(&["__MMX__", "__SSE__", "__i686__"]);
+        assert_eq!(
+            x86_missing("x86-64-baseline", &p3),
+            macros(&["sse2"]),
+        );
+        // A level implies the ones below it.
+        assert_eq!(
+            x86_missing("x86-64-v3", &p3),
+            macros(&["sse2", "sse4_2", "avx2"]),
+        );
+    }
+
+    /// A board whose -march already reaches the level has nothing to answer
+    /// for, and "used" is not "needed" -- only the latter is scanned.
+    #[test]
+    fn a_level_the_board_reaches_is_not_a_finding() {
+        let v2 = macros(&["__SSE2__", "__SSE4_2__"]);
+        assert!(x86_missing("x86-64-baseline", &v2).is_empty());
+        assert!(x86_missing("x86-64-v2", &v2).is_empty());
+        assert_eq!(x86_missing("x86-64-v3", &v2), macros(&["avx2"]));
+        // Nothing recognisable: say nothing rather than guess.
+        assert!(x86_missing("", &v2).is_empty());
+        assert!(x86_missing("some-future-level", &v2).is_empty());
+    }
+
 
     #[test]
     fn a_version_suffix_is_not_part_of_the_name() {
