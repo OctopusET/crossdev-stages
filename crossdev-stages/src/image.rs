@@ -869,7 +869,34 @@ fn rebuild_seed(runner: &SandboxRunner, target: &Target, board: &BoardConfig) ->
         policy.name(),
         survey.mismatched.len()
     );
-    Portage::new(runner).cross_emerge_rebuild(&board.chost(), &survey.mismatched)
+    let result = Portage::new(runner).cross_emerge_rebuild(&board.chost(), &survey.mismatched);
+
+    // Best effort, and say so.  A package that will not rebuild keeps the
+    // stage3's flags, and stage3 i686 code runs on any i686: this layer
+    // chooses how well the image is tuned, not whether it is legal.  The ISA
+    // check is the one that decides that.  Some packages cannot be rebuilt
+    // here at all -- dev-perl modules with XS run `perl Makefile.PL` from the
+    // build host's perl, whose Config carries amd64 flags
+    // (-fcf-protection=full) that an i686 compile rejects.
+    let after = SeedSurvey::of(target, &cflags);
+    if after.mismatched.is_empty() {
+        tracing::info!("Seed: every package now carries {cflags:?}.");
+        return Ok(());
+    }
+    if after.mismatched.len() >= survey.mismatched.len() {
+        // Nothing moved: the emerge died before it built anything.
+        return result;
+    }
+    let shown: Vec<&str> = after.mismatched.iter().map(String::as_str).take(12).collect();
+    tracing::warn!(
+        "Seed: {} of {} did not rebuild and keep the stage3's flags: {}{}. \
+         They are still i686 and still run here; the ISA check decides that.",
+        after.mismatched.len(),
+        survey.mismatched.len(),
+        shown.join(" "),
+        if after.mismatched.len() > shown.len() { " ..." } else { "" },
+    );
+    Ok(())
 }
 
 /// Read a `<distro>-packages.txt`: one package name per line, `#`
