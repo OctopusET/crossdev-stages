@@ -746,6 +746,9 @@ struct SeedSurvey {
     /// The largest flag set that is not the board's, and how many packages
     /// carry it.  On a fresh target that is the stage3's own CFLAGS.
     other: Option<(String, usize)>,
+    /// Exact atoms (`=cat/pf`) for the packages missing a flag -- what a
+    /// seed rebuild has to redo, and nothing else.
+    mismatched: Vec<String>,
 }
 
 impl SeedSurvey {
@@ -755,8 +758,9 @@ impl SeedSurvey {
         let mut board = 0;
         let mut others = std::collections::HashMap::<String, usize>::new();
         let vdb = target.dir.join("var/db/pkg");
+        let mut mismatched = Vec::new();
         let Ok(cats) = std::fs::read_dir(&vdb) else {
-            return Self { total: 0, board: 0, other: None };
+            return Self { total: 0, board: 0, other: None, mismatched };
         };
         for cat in cats.flatten() {
             let Ok(pkgs) = std::fs::read_dir(cat.path()) else {
@@ -776,11 +780,22 @@ impl SeedSurvey {
                     board += 1;
                 } else {
                     *others.entry(flags).or_default() += 1;
+                    // `=cat/pf` pins the version already installed: a seed
+                    // rebuild is about the flags, not about moving versions.
+                    if let (Some(c), Some(p)) = (
+                        cat.file_name().to_str(),
+                        pkg.file_name().to_str(),
+                    ) {
+                        if !p.starts_with('-') {
+                            mismatched.push(format!("={c}/{p}"));
+                        }
+                    }
                 }
             }
         }
         let other = others.into_iter().max_by_key(|(_, n)| *n);
-        Self { total, board, other }
+        mismatched.sort();
+        Self { total, board, other, mismatched }
     }
 
     /// Packages missing at least one of the board's flags.
@@ -829,12 +844,20 @@ fn rebuild_seed(runner: &SandboxRunner, target: &Target, board: &BoardConfig) ->
         return Ok(());
     };
 
+    if survey.mismatched.is_empty() {
+        tracing::info!(
+            "ROOTFS_REBUILD=\"{}\": every package already carries {cflags:?}.",
+            policy.name()
+        );
+        return Ok(());
+    }
     tracing::info!(
-        "ROOTFS_REBUILD=\"{}\": rebuilding {set} in /target with {cflags:?}. \
-         This recompiles the seed from source and takes hours.",
-        policy.name()
+        "ROOTFS_REBUILD=\"{}\" ({set}): rebuilding the {} packages that do not \
+         carry {cflags:?}, from source. This takes hours.",
+        policy.name(),
+        survey.mismatched.len()
     );
-    Portage::new(runner).cross_emerge_set(&board.chost(), set)
+    Portage::new(runner).cross_emerge_rebuild(&board.chost(), &survey.mismatched)
 }
 
 /// Read a `<distro>-packages.txt`: one package name per line, `#`

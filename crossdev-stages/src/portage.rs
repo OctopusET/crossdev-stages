@@ -398,19 +398,28 @@ impl<'a> Portage<'a> {
         Ok(packages)
     }
 
-    /// Rebuild a whole portage set in the target from source (`-e`).
+    /// Rebuild exactly `atoms` into /target from source.
     ///
-    /// Explicit --jobs / --load-average for the reason `cross_emerge_world`
-    /// gives.  Not shared with it, which sets KERNEL_DIR=/usr/src/linux -- at
-    /// `deps` time nothing has checked a kernel out yet.
-    pub fn cross_emerge_set(&self, chost: &str, set: &str) -> Result<()> {
+    /// Deliberately not `-e <set>`.  `-e` also re-merges what the cross
+    /// prefix already holds, and the prefix is an overlayfs mount: portage
+    /// ends a merge by renaming `<pkg>-MERGING` into place, which returns EIO
+    /// on a rootless overlay when the target exists in the lower layer
+    /// (userxattr mode cannot write the redirect xattr a cross-layer
+    /// directory move needs).  Without `-e`, satisfied prefix packages are
+    /// left alone.  Explicit --jobs / --load-average for the reason
+    /// `cross_emerge_world` gives.
+    pub fn cross_emerge_rebuild(&self, chost: &str, atoms: &[String]) -> Result<()> {
         let (jobs, load) = parallelism();
         let emerge = format!("{chost}-emerge");
         let jobs = format!("--jobs={jobs}");
         let load = load.to_string();
+        let atoms: Vec<&str> = atoms.iter().map(String::as_str).collect();
         self.run_emerge_argv(
-            &["env", "ROOT=/target", &emerge, "-b", "-k", &jobs, "--load-average", &load, "-e"],
-            &[set],
+            &[
+                "env", "ROOT=/target", &emerge, "-b", "--usepkg=n", "--oneshot",
+                "--keep-going", &jobs, "--load-average", &load,
+            ],
+            &atoms,
         )
     }
 
