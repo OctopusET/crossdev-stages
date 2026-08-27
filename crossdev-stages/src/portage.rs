@@ -374,10 +374,17 @@ impl<'a> Portage<'a> {
     /// in-prefix kernel headers, which some `@world` packages read.
     /// Explicit --jobs / --load-average so EMERGE_DEFAULT_OPTS from make.conf
     /// can't be silently lost (e.g. when a wrapper drops PORTAGE_CONFIGROOT).
+    ///
+    /// --keep-going because `-e` also re-merges what the prefix already holds,
+    /// and the prefix is an overlayfs mount: portage ends a merge by renaming
+    /// `<pkg>-MERGING` into place, which returns EIO on a rootless overlay
+    /// when the target exists in the lower layer.  Those packages cannot be
+    /// reinstalled here; the rest of the set still can.  ROOTFS_REBUILD in
+    /// the image pipeline uses [`Self::cross_emerge_rebuild`] instead.
     pub fn cross_emerge_world(&self, chost: &str) -> Result<()> {
         let (jobs, load) = parallelism();
         self.runner.run(&format!(
-            "KERNEL_DIR=/usr/src/linux ROOT=/target {chost}-emerge \
+            "KERNEL_DIR=/usr/src/linux ROOT=/target {chost}-emerge --keep-going \
              -b -k --jobs={jobs} --load-average {load} -e @world"
         ))
     }
