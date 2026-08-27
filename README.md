@@ -254,6 +254,8 @@ by `uboot`.
 | `BOOT_EXTLINUX` | no | `true` makes `assemble` write `/extlinux/extlinux.conf` |
 | `BOOT_APPEND` | no | Kernel arguments added to that entry |
 | `BOOT_DTB_NAME` | no | DTB to boot, when `BOARD_DTB_GLOB` matches more than one |
+| `DRACUT_MODULES` | no | dracut modules for an initramfs the board loads as a firmware carrier (see below); no board needs one to find its root |
+| `INITRAMFS_INSTALL` | no | Files from the target rootfs to bake into that initramfs (e.g. `/lib/firmware/esos.elf`) |
 | `BOOT_OS_PROBER` | no | Also install the kernel in the rootfs as `/boot/vmlinuz-<kver>`, the name os-prober needs to see (default: no) |
 | `ISA_STRICT` | no | `false` downgrades an unrunnable binary to a warning (default: fail) |
 | `ROOTFS_PROVIDER` | no | Who fills the image rootfs: `gentoo` (default; stage3 + cross-emerge + OpenRC), `debian` or `ubuntu` (debootstrap + systemd), `alpine` (apk + OpenRC), `fedora` (container base image + dnf5 + systemd), `buildroot` (defconfig build), or `none` (board hooks own it) |
@@ -407,6 +409,25 @@ The DTB is the basename of `BOARD_DTB_GLOB`, which on most boards already names
 exactly one file; a board that copies a whole directory of them sets
 `BOOT_DTB_NAME`. A board needing a different shape -- several labels, a kernel
 named by version -- writes its own file from `post-assemble.sh` instead.
+
+### The initramfs
+
+Boards here boot without one, and that is the design, not a gap. The kernel is
+built for one board, so the driver its root device needs is built in, and
+`root=` is a PARTUUID or a device path, both of which the kernel resolves by
+itself. Nothing this project writes points at an initrd: `extlinux.conf` has no
+`INITRD` line and the x86 boards' `grub.cfg` has no `initrd` line.
+
+`DRACUT_MODULES` builds one for the boards that need a file in memory before
+the real root is mounted. On the SpaceMiT K1 that file is `esos.elf`, the
+firmware for the rcpu driving the SCMI clock controller: `INITRAMFS_INSTALL`
+names it and u-boot loads the image as a ramdisk. It is a carrier, and it
+parses no kernel command line.
+
+Adding one to a board that boots fine without it buys nothing and is not free.
+`docs/design.md` says what it would take to build one that could resolve
+`root=`, and why that is a package problem rather than a longer
+`DRACUT_MODULES`.
 
 ### A shell inside the image
 

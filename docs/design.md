@@ -442,6 +442,44 @@ error, not a silent skip.  It runs with the cross toolchain mounted, which
 a board that compiles nothing there can avoid by making the work a
 `pre-`/`post-{step}.sh` hook on a step it already runs.
 
+### The initramfs, and what it is not
+
+No board here needs an initramfs to reach its root filesystem, and the
+project does not build one for that purpose.  The kernel is built for one
+board, so the driver its root device needs is built in, and `root=` is a
+PARTUUID or a device path -- the two forms `block/early-lookup.c` resolves
+on its own.  Nothing this project writes says otherwise: `extlinux_conf()`
+emits `DEFAULT`, `TIMEOUT`, `LABEL`, `MENU LABEL`, `LINUX`, `FDT` and
+`APPEND` and has no `INITRD` case, and the `grub.cfg` the x86 boards write
+has `linux` lines and no `initrd` line.
+
+`DRACUT_MODULES` exists for the other job: putting a file in memory before
+the real root is mounted.  On the SpaceMiT K1 (`k1`, `ky-x1`) that file is
+`esos.elf`, the firmware for the rcpu behind the SCMI clock controller.
+`INITRAMFS_INSTALL` names it, and the board hands the image to the kernel
+as a ramdisk: `ky-x1` wraps it as a `uInitrd` its `boot.cmd` passes to
+`booti`, `k1` names it in the vendor u-boot env as `ramdisk_name`.  That
+is a carrier.  It parses no command line and mounts no root.
+
+So an initramfs is a per-board answer to a per-board problem, not a step
+every image should grow.  Two things follow, and both are the reason this
+is written down rather than rediscovered:
+
+- A board that builds one carrying nothing is carrying dead weight, not a
+  safety net.  `k230` sets `DRACUT_MODULES` and writes its own
+  `extlinux.conf` with no `INITRD` line, so the image it builds is never
+  loaded at all; `k3` loads one through `ramdisk_name` but names no
+  `INITRAMFS_INSTALL`, so there is nothing in it the board needs.
+- Making a dracut initramfs that *could* resolve `root=` is not a matter
+  of listing more modules.  No target contains dracut at all, so the dracut
+  that runs is the sandbox's own, pointed at the image with `--sysroot`.
+  Its `80base` module installs `${dracutbasedir}/dracut-util` into the
+  image as `/usr/bin/dracut-util` and links `dracut-getarg` and
+  `dracut-getargs` to it, and that binary is the sandbox's -- built for the
+  build host, not for the board.  Every `getarg` in every dracut hook goes
+  through it.  The prerequisite is a target-native dracut, which is a
+  package problem, not a flag.
+
 ---
 
 ## Package lists
