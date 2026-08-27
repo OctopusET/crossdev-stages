@@ -120,16 +120,30 @@ impl<'a> MakeConf<'a> {
             // dir is the one thing in a cross build that is pure write-then-
             // discard: gcc, llvm and rust each move gigabytes through it.
             set_make_conf_var(&make_conf, "PORTAGE_TMPDIR", "/dev/shm")?;
+            // PORTAGE_LOGDIR, not PORT_LOGDIR.  Portage renamed it and the
+            // old name is inert: it named a directory in every failure
+            // message while writing nothing into it, so the build log an
+            // emerge failure points at never existed and
+            // SHOW_BUILD_FAILURES had nothing to find.  /var/log is a
+            // read-write bind of the workspace's logs/<sandbox>/, so what
+            // lands here outlives the container.
             set_make_conf_var(
                 &make_conf,
-                "PORT_LOGDIR",
+                "PORTAGE_LOGDIR",
                 &format!("/var/log/portage/{garch}"),
             )?;
+            unset_make_conf_var(&make_conf, "PORT_LOGDIR")?;
         } else {
             // Older target stages were written with this machine's tuning in
             // them.  Take it back out rather than leave a board emerging with
             // a build host's core count.
-            for stale in ["MAKEOPTS", "EMERGE_DEFAULT_OPTS", "FEATURES", "PORT_LOGDIR"] {
+            for stale in [
+                "MAKEOPTS",
+                "EMERGE_DEFAULT_OPTS",
+                "FEATURES",
+                "PORT_LOGDIR",
+                "PORTAGE_LOGDIR",
+            ] {
                 unset_make_conf_var(&make_conf, stale)?;
             }
         }
