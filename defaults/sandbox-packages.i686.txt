@@ -1,0 +1,19 @@
+# Host build deps that differ on an i686 sandbox.
+#
+# An i686 sandbox is not a cross-build host: it is a machine of the target's
+# own architecture, executed directly by an x86-64 kernel. Two entries of the
+# base list cannot be installed on one.
+
+# dev-lang/rust's i686 target sets base.cpu = "pentium4", so its baseline is
+# SSE2. Gentoo states that as REQUIRED_USE="x86? ( cpu_flags_x86_sse2 )" and
+# refuses on a profile without it rather than emit instructions the CPU
+# faults on. Rebuilding rust with -Ctarget-cpu=i586 is possible and is what
+# Tiny Core did, but it needs a patched ebuild, not a package list.
+-dev-lang/rust
+
+# sys-fs/genimage carries KEYWORDS="~amd64 ~arm ~arm64" -- no x86 at all.
+# Pin the release before unmasking: ** on the bare name selects the 9999 live
+# ebuild, whose dependencies do not resolve here, and one unresolvable atom
+# aborts the whole emerge rather than just itself.
+-sys-fs/genimage
+=sys-fs/genimage-19 **

@@ -86,7 +86,12 @@ impl Sandbox {
             tracing::info!("Sandbox bare-prepared.");
         } else {
             tracing::info!("Installing host dependencies…");
-            install_host_deps(&self.runner(), defaults_root, &self.dir.join("etc/portage"))?;
+            install_host_deps(
+                &self.runner(),
+                defaults_root,
+                &self.dir.join("etc/portage"),
+                &self.arch,
+            )?;
             std::fs::write(self.dir.join(".prepared"), "")?;
             let _ = std::fs::remove_file(self.dir.join(".prepared-bare"));
             tracing::info!("Sandbox prepared.");

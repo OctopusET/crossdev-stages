@@ -552,21 +552,38 @@ pub fn sync_portage_tree(runner: &SandboxRunner) -> Result<()> {
 
 /// Install all host-side dependencies required for cross-compilation.
 ///
-/// Reads the package list from `<defaults_root>/sandbox-packages.txt`. Per-board
-/// extras (boards/<board>/sandbox-packages.txt) are emerged separately during
-/// image build via `image::default_deps`. Keyword overrides (`atom [keywords]`
-/// lines) are written to `<portage_dir>/package.accept_keywords/`.
+/// Reads `<defaults_root>/sandbox-packages.txt`, then merges
+/// `sandbox-packages.<arch>.txt` over it, because the base list is not
+/// installable everywhere: it was written for an amd64 sandbox, and a
+/// sandbox is now sometimes the target's own architecture.  `dev-lang/rust`
+/// is the clearest case -- its i686 target sets `base.cpu = "pentium4"`, so
+/// Gentoo's ebuild carries `REQUIRED_USE="x86? ( cpu_flags_x86_sse2 )"` and
+/// refuses on a profile without SSE2 -- and `sys-fs/genimage` the plainest:
+/// `KEYWORDS="~amd64 ~arm ~arm64"`, no x86 at all.  USE overrides for the
+/// same arch come from `sandbox-packages.<arch>.use`.
+///
+/// Per-board extras (boards/<board>/sandbox-packages.txt) are emerged
+/// separately during image build via `image::default_deps`; a `-atom` there
+/// cannot cancel one of these, which is why the arch overlay exists here.
 pub fn install_host_deps(
     runner: &SandboxRunner,
     defaults_root: &Utf8Path,
     portage_dir: &Utf8Path,
+    arch: &str,
 ) -> Result<()> {
     sync_portage_tree(runner)?;
     let portage = Portage::new(runner);
 
-    let path = defaults_root.join("sandbox-packages.txt");
-    let packages = crate::package_list::read_required(&path)?;
+    let base = crate::package_list::read_required(&defaults_root.join("sandbox-packages.txt"))?;
+    let overlay = crate::package_list::read_optional(
+        &defaults_root.join(format!("sandbox-packages.{arch}.txt")),
+    )?;
+    let packages = crate::package_list::merge(base, overlay);
     crate::package_list::write_accept_keywords(&packages, portage_dir)?;
+    crate::package_list::write_package_use(
+        &defaults_root.join(format!("sandbox-packages.{arch}.use")),
+        portage_dir,
+    )?;
 
     tracing::info!(
         "Installing host build dependencies ({} packages)…",
@@ -574,8 +591,29 @@ pub fn install_host_deps(
     );
     portage.emerge(&crate::package_list::atoms(&packages))?;
 
-    tracing::info!("Installing Rust ldconfig…");
-    runner.run("cargo install --root /usr/local ldconfig")?;
+    install_ldconfig(runner, &packages)?;
 
     Ok(())
+}
+
+/// Put an `ldconfig` at /usr/local/bin, which every caller in this tree
+/// spells out in full.
+///
+/// The Rust one exists because glibc's cannot read a rootfs built for
+/// another architecture.  A sandbox that *is* the target's architecture has
+/// no such problem: its own ldconfig understands /target because they are
+/// the same ABI.  That matters beyond tidiness, because the sandboxes where
+/// the two coincide are also the ones that may not be able to install rust
+/// at all.
+fn install_ldconfig(runner: &SandboxRunner, packages: &[crate::package_list::Entry]) -> Result<()> {
+    if packages.iter().any(|p| p.atom.contains("dev-lang/rust")) {
+        tracing::info!("Installing Rust ldconfig…");
+        return runner.run("cargo install --root /usr/local ldconfig");
+    }
+    tracing::info!("Using this sandbox's own ldconfig; it shares the target's ABI.");
+    runner.run(
+        "mkdir -p /usr/local/bin
+         printf '#!/bin/sh\nexec /sbin/ldconfig \"$@\"\n' > /usr/local/bin/ldconfig
+         chmod 755 /usr/local/bin/ldconfig",
+    )
 }

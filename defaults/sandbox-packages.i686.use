@@ -1,0 +1,3 @@
+# git turns its rust half on by default now, which pulls dev-lang/rust-bin and
+# the same SSE2 baseline rust will not drop.
+dev-vcs/git -rust
