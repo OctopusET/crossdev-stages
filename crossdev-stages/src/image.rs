@@ -715,11 +715,126 @@ fn default_deps(
             ))?;
         }
 
+    }
+
+    // Before the board's own list, not after: @world at this point is what
+    // the stage3 shipped, so rebuilding it first leaves nothing below for a
+    // second compile.  The keyword and USE files the block above wrote are
+    // already in place either way.
+    rebuild_seed(&target_runner, target, board)?;
+
+    if !target_pkgs.is_empty() {
         let portage = Portage::new(&target_runner);
         portage.cross_emerge(&board.chost(), &crate::package_list::atoms(&target_pkgs))?;
     }
 
     Ok(())
+}
+
+/// What the packages already installed in `/target` were compiled with,
+/// counted against the board's own CFLAGS.
+///
+/// Read from the target's VDB on the host: portage writes the flags of every
+/// build into `var/db/pkg/<cat>/<pf>/CFLAGS`, so the answer costs a directory
+/// walk and no container.  A package counts as the board's when every flag
+/// the board declares is present: an ebuild that appends its own flags still
+/// built what the board asked for.
+struct SeedSurvey {
+    total: usize,
+    /// Packages carrying every flag the board declares.
+    board: usize,
+    /// The largest flag set that is not the board's, and how many packages
+    /// carry it.  On a fresh target that is the stage3's own CFLAGS.
+    other: Option<(String, usize)>,
+}
+
+impl SeedSurvey {
+    fn of(target: &Target, cflags: &str) -> Self {
+        let want: Vec<&str> = cflags.split_whitespace().collect();
+        let mut total = 0;
+        let mut board = 0;
+        let mut others = std::collections::HashMap::<String, usize>::new();
+        let vdb = target.dir.join("var/db/pkg");
+        let Ok(cats) = std::fs::read_dir(&vdb) else {
+            return Self { total: 0, board: 0, other: None };
+        };
+        for cat in cats.flatten() {
+            let Ok(pkgs) = std::fs::read_dir(cat.path()) else {
+                continue;
+            };
+            for pkg in pkgs.flatten() {
+                if !pkg.path().is_dir() {
+                    continue;
+                }
+                total += 1;
+                let flags = std::fs::read_to_string(pkg.path().join("CFLAGS"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                let have: Vec<&str> = flags.split_whitespace().collect();
+                if want.iter().all(|f| have.contains(f)) {
+                    board += 1;
+                } else {
+                    *others.entry(flags).or_default() += 1;
+                }
+            }
+        }
+        let other = others.into_iter().max_by_key(|(_, n)| *n);
+        Self { total, board, other }
+    }
+
+    /// Packages missing at least one of the board's flags.
+    fn foreign(&self) -> usize {
+        self.total - self.board
+    }
+}
+
+/// Say what the stage3 seed contributed to `/target`, and rebuild it with the
+/// board's flags when `ROOTFS_REBUILD` asks for that.
+///
+/// `deps` is where this belongs.  It is the step that fills a Gentoo board's
+/// rootfs, the last one to touch `/target` before `assemble` copies it into
+/// the image, and the one whose resume marker already digests board.conf --
+/// so changing `ROOTFS_REBUILD` redoes exactly this step and the ones after
+/// it, and nothing else.
+fn rebuild_seed(runner: &SandboxRunner, target: &Target, board: &BoardConfig) -> Result<()> {
+    let cflags = board.effective_cflags();
+    let survey = SeedSurvey::of(target, &cflags);
+    let policy = board.rootfs_rebuild;
+
+    // Said whether or not the board set the key: a board that never mentions
+    // it still ships an image most of whose binaries it did not choose the
+    // flags for, and that is not something to leave to whoever reads the VDB.
+    match &survey.other {
+        Some((flags, n)) => tracing::info!(
+            "Seed: {} of {} packages in /target were not built with {cflags:?}; \
+             {n} of them carry {flags:?}, which is what the stage3 shipped.",
+            survey.foreign(),
+            survey.total,
+        ),
+        None if survey.total > 0 => tracing::info!(
+            "Seed: all {} packages in /target carry {cflags:?}.",
+            survey.total
+        ),
+        None => {}
+    }
+
+    let Some(set) = policy.set() else {
+        if survey.foreign() > 0 {
+            tracing::info!(
+                "ROOTFS_REBUILD=\"none\": keeping them. \"system\" or \"world\" \
+                 rebuilds them with the board's flags instead."
+            );
+        }
+        return Ok(());
+    };
+
+    tracing::info!(
+        "ROOTFS_REBUILD=\"{}\": rebuilding {set} in /target with {cflags:?}. \
+         This recompiles the seed from source and takes hours.",
+        policy.name()
+    );
+    Portage::new(runner).cross_emerge_set(&board.chost(), set)
 }
 
 /// Read a `<distro>-packages.txt`: one package name per line, `#`
@@ -2631,8 +2746,9 @@ fn format_duration(d: std::time::Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::{atom_cpn, buildroot_build_script, extlinux_conf, extlinux_fdt,
-                kernel_config_fragments, marker_for, step_inputs, Build};
+                kernel_config_fragments, marker_for, step_inputs, Build, SeedSurvey};
     use crate::board::BoardConfig;
+    use crate::target::Target;
     use camino::Utf8PathBuf;
 
     fn board_with(fragments: &[&str]) -> BoardConfig {
@@ -2902,5 +3018,79 @@ mod tests {
             Some(("media-plugins", "gst-plugins-v4l2"))
         );
         assert_eq!(atom_cpn("no-category-here"), None);
+    }
+
+    // -- The stage3 seed ---------------------------------------------------
+
+    /// A /target whose VDB records `flags` for each named package.
+    fn seeded_target(name: &str, pkgs: &[(&str, &str)]) -> Target {
+        let dir = scratch(name);
+        for (i, (atom, flags)) in pkgs.iter().enumerate() {
+            let pkg = dir.join("var/db/pkg").join(atom);
+            std::fs::create_dir_all(&pkg).unwrap();
+            // One package with no CFLAGS file at all: portage writes none for
+            // a binary package that recorded nothing, and it must not count
+            // as the board's.
+            if i != 0 {
+                std::fs::write(pkg.join("CFLAGS"), flags).unwrap();
+            }
+        }
+        Target { dir, arch: "i686".into() }
+    }
+
+    /// The measurement that named the problem: a dell-dimension-4100 target
+    /// where most of what shipped was the seed's, not the board's.
+    #[test]
+    fn the_seed_is_counted_apart_from_what_the_board_built() {
+        let target = seeded_target(
+            "seed-survey",
+            &[
+                ("sys-apps/nocflags-1", ""),
+                ("sys-apps/coreutils-9", "-O2 -march=i686 -pipe"),
+                ("sys-apps/sed-4", "-O2 -march=i686 -pipe"),
+                ("sys-libs/zlib-1", "-O2 -march=i686 -pipe -fno-strict-aliasing"),
+                ("app-misc/fastfetch-2", "-O2 -march=pentium3 -pipe"),
+            ],
+        );
+        let survey = SeedSurvey::of(&target, "-O2 -march=pentium3 -pipe");
+        assert_eq!(survey.total, 5);
+        assert_eq!(survey.board, 1);
+        assert_eq!(survey.foreign(), 4);
+        assert_eq!(
+            survey.other,
+            Some(("-O2 -march=i686 -pipe".to_string(), 2))
+        );
+    }
+
+    /// Ebuilds add flags of their own around the board's.  Such a package
+    /// still built what the board asked for, and counting it as the seed's
+    /// would overstate the problem on every board.
+    #[test]
+    fn extra_flags_around_the_boards_do_not_make_a_package_the_seeds() {
+        let target = seeded_target(
+            "seed-survey-extra",
+            &[
+                ("sys-apps/skipped-1", ""),
+                ("sys-libs/glibc-2", "-O2 -march=pentium3 -pipe -fno-strict-aliasing"),
+                ("sys-apps/util-linux-2", "-O2 -march=pentium3 -pipe -std=gnu17"),
+            ],
+        );
+        let survey = SeedSurvey::of(&target, "-O2 -march=pentium3 -pipe");
+        assert_eq!(survey.board, 2);
+        assert_eq!(survey.foreign(), 1);
+    }
+
+    /// A provider that never seeded a VDB, and a target dir that does not
+    /// exist yet: the survey reports nothing rather than failing the build.
+    #[test]
+    fn a_target_with_no_vdb_surveys_to_nothing() {
+        let target = Target {
+            dir: scratch("seed-survey-empty"),
+            arch: "i686".into(),
+        };
+        let survey = SeedSurvey::of(&target, "-O2 -pipe");
+        assert_eq!(survey.total, 0);
+        assert_eq!(survey.foreign(), 0);
+        assert_eq!(survey.other, None);
     }
 }

@@ -384,6 +384,22 @@ impl<'a> Portage<'a> {
         Ok(packages)
     }
 
+    /// Rebuild a whole portage set in the target from source (`-e`).
+    ///
+    /// Explicit --jobs / --load-average for the reason `cross_emerge_world`
+    /// gives.  Not shared with it, which sets KERNEL_DIR=/usr/src/linux -- at
+    /// `deps` time nothing has checked a kernel out yet.
+    pub fn cross_emerge_set(&self, chost: &str, set: &str) -> Result<()> {
+        let (jobs, load) = parallelism();
+        let emerge = format!("{chost}-emerge");
+        let jobs = format!("--jobs={jobs}");
+        let load = load.to_string();
+        self.run_emerge_argv(
+            &["env", "ROOT=/target", &emerge, "-b", "-k", &jobs, "--load-average", &load, "-e"],
+            &[set],
+        )
+    }
+
     /// Run `{chost}-emerge` without overriding ROOT, so packages install into
     /// the crossdev prefix (`/usr/{chost}`) rather than `/target`.
     /// Used for updating the cross-toolchain itself (gcc, binutils-libs, @system).

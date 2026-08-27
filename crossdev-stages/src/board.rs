@@ -1,7 +1,7 @@
 use camino::Utf8Path;
 
 use crate::error::{Error, Result};
-use crate::provider::{RootfsProvider, SecondStage};
+use crate::provider::{RootfsProvider, RootfsRebuild, SecondStage};
 
 /// Board configuration loaded from `boards/<name>/board.conf`.
 #[derive(Debug, Clone)]
@@ -26,6 +26,9 @@ pub struct BoardConfig {
     pub mirror: Option<String>,
     /// ROOTFS_SECOND_STAGE; absent → chroot (build-time, needs qemu-user).
     pub second_stage: SecondStage,
+    /// ROOTFS_REBUILD; absent → none, the seed is kept as the stage3 built
+    /// it.  gentoo provider only; every other one is refused at parse.
+    pub rootfs_rebuild: RootfsRebuild,
     pub alpine_branch: Option<String>, // ALPINE_BRANCH; alpine provider, None → "v3.24"
     pub alpine_mirror: Option<String>, // ALPINE_MIRROR; alpine provider, None → dl-cdn
     pub alpine_repos: Option<String>,  // ALPINE_REPOS; alpine provider, None → "main community"
@@ -387,6 +390,28 @@ fn parse(name: &str, path: &Utf8Path, content: &str) -> Result<BoardConfig> {
         None => SecondStage::default(),
     };
 
+    // Refused rather than ignored on the other providers.  A debian, alpine,
+    // fedora or buildroot rootfs has no @system and no @world, so there is
+    // nothing for the key to mean there, and a key that parses and does
+    // nothing is the failure this project keeps finding in its own config.
+    let rootfs_rebuild = match kv.get("ROOTFS_REBUILD") {
+        Some(v) if rootfs_provider != RootfsProvider::Gentoo => {
+            return Err(Error::BoardConfigParse {
+                file: path.to_string(),
+                msg: format!(
+                    "ROOTFS_REBUILD '{v}' only applies to the gentoo provider; \
+                     a {} rootfs has no @system or @world to rebuild",
+                    rootfs_provider.name()
+                ),
+            })
+        }
+        Some(v) => RootfsRebuild::parse(v).ok_or_else(|| Error::BoardConfigParse {
+            file: path.to_string(),
+            msg: format!("unknown ROOTFS_REBUILD '{v}' (valid: none, system, world)"),
+        })?,
+        None => RootfsRebuild::default(),
+    };
+
     Ok(BoardConfig {
         name: name.to_string(),
         arch: req!("BOARD_ARCH"),
@@ -403,6 +428,7 @@ fn parse(name: &str, path: &Utf8Path, content: &str) -> Result<BoardConfig> {
         suite: deb.and_then(|d| kv.get(d.suite_key).cloned()),
         mirror: deb.and_then(|d| kv.get(d.mirror_key).cloned()),
         second_stage,
+        rootfs_rebuild,
         alpine_branch: kv.get("ALPINE_BRANCH").cloned(),
         alpine_mirror: kv.get("ALPINE_MIRROR").cloned(),
         alpine_repos: kv.get("ALPINE_REPOS").cloned(),
@@ -626,6 +652,68 @@ mod tests {
             Utf8Path::new("board.conf"),
         )
         .unwrap();
+    }
+
+    /// The minimum a board.conf has to say to parse.
+    fn minimal(extra: &str) -> String {
+        format!(
+            "BOARD_ARCH=\"riscv64\"\nCROSS_COMPILE=\"riscv64-unknown-linux-gnu-\"\n\
+             KERNEL_REPO=\"https://example.invalid/linux.git\"\n\
+             KERNEL_DEFCONFIG=\"defconfig\"\n{extra}"
+        )
+    }
+
+    fn parse_conf(extra: &str) -> Result<BoardConfig> {
+        parse("demo", Utf8Path::new("board.conf"), &minimal(extra))
+    }
+
+    /// The default is what every board did before the key existed, so a board
+    /// that says nothing keeps its stage3 seed exactly as it came.
+    #[test]
+    fn a_board_that_says_nothing_keeps_the_seed() {
+        let board = parse_conf("").unwrap();
+        assert_eq!(board.rootfs_rebuild, RootfsRebuild::None);
+        assert_eq!(board.rootfs_rebuild.set(), None);
+    }
+
+    #[test]
+    fn a_gentoo_board_can_ask_for_system_or_world() {
+        for (value, want) in [
+            ("system", RootfsRebuild::System),
+            ("world", RootfsRebuild::World),
+            ("none", RootfsRebuild::None),
+        ] {
+            let board = parse_conf(&format!("ROOTFS_REBUILD=\"{value}\"\n")).unwrap();
+            assert_eq!(board.rootfs_rebuild, want, "{value}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_value_is_refused() {
+        let err = parse_conf("ROOTFS_REBUILD=\"everything\"\n").unwrap_err();
+        assert!(err.to_string().contains("ROOTFS_REBUILD"), "{err}");
+    }
+
+    /// Refused, not ignored: a debian rootfs has no @world, and a key that
+    /// parses and does nothing is the bug class this one was written against.
+    #[test]
+    fn only_the_gentoo_provider_takes_the_key() {
+        for provider in ["debian", "alpine", "fedora", "buildroot", "none"] {
+            let conf = format!(
+                "ROOTFS_PROVIDER=\"{provider}\"\nROOTFS_REBUILD=\"world\"\n"
+            );
+            let err = parse_conf(&conf).unwrap_err();
+            assert!(err.to_string().contains("gentoo provider"), "{provider}: {err}");
+        }
+    }
+
+    /// Including the value that would have been a no-op there.  Accepting it
+    /// silently would teach a board that the key applies when it does not.
+    #[test]
+    fn even_none_is_refused_on_another_provider() {
+        let err = parse_conf("ROOTFS_PROVIDER=\"debian\"\nROOTFS_REBUILD=\"none\"\n")
+            .unwrap_err();
+        assert!(err.to_string().contains("ROOTFS_REBUILD"), "{err}");
     }
 
     #[test]

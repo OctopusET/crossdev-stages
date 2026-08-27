@@ -162,6 +162,38 @@ BUILD_STEPS compiles target code.  `deps`, `checkout`, `assemble` and
 `pack` do not; `kernel`, `bootloader` and every step a board invents do,
 because a board invents a step to build what no built-in step builds.
 
+### `RootfsRebuild`
+
+What a gentoo board does about the part of its rootfs it did not compile.
+`deps` cross-emerges the board's target-package list and its dependencies
+with `BOARD_CFLAGS`; the several hundred packages the stage3 seed already
+provides keep the flags Gentoo built them with, and nothing used to say so.
+Measured on a freshly built dell-dimension-4100 target: of 360 packages
+installed, 294 do not carry the board's `-O2 -march=pentium3 -pipe`, and 285
+of those were built `-O2 -march=i686 -pipe`, which is what the x86 stage3
+shipped.
+
+`ROOTFS_REBUILD` states the policy:
+
+```
+none     keep the seed as it came.  The default, because it is what every
+         board did before the key existed.
+system   rebuild @system with the board's flags.
+world    rebuild @world: @system plus what else the seed's world file names.
+```
+
+The rebuild runs inside `deps`, which is the step that fills a Gentoo
+board's rootfs and the last to touch `/target` before `assemble` copies it
+into the image; the `deps` resume marker already digests board.conf, so
+changing the key redoes that step and the ones after it and nothing else.
+It runs before the board's own package list is emerged, so `@world` is still
+what the stage3 shipped and nothing is compiled twice.
+
+Either way `deps` logs how many installed packages carry the board's flags
+and how many do not, and names the largest set that does not.  Only the
+gentoo provider has an `@system`, so `board.conf` refuses `ROOTFS_REBUILD`
+on any other provider instead of accepting a key nothing acts on.
+
 ### `SecondStage`
 
 `debootstrap --foreign` downloads every .deb but unpacks only the

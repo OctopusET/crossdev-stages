@@ -185,6 +185,62 @@ impl RootfsProvider {
     }
 }
 
+/// How much of the Gentoo stage3 seed a board replaces with its own flags.
+///
+/// The `deps` step only ever adds to the seed: the board's package list and
+/// everything it pulls in are built with the board's CFLAGS, and the several
+/// hundred packages the stage3 already provides keep the ones Gentoo built
+/// them with.  That is a policy, and until this key existed nothing said so
+/// -- a board declaring `-march=pentium3` shipped an image where most of the
+/// binaries were `-march=i686`, and the only way to find out was to read the
+/// VDB.  Every value here is a Gentoo answer; a rootfs that is not a Gentoo
+/// one has no `@system` and no `@world`, so `board.conf` refuses the key on
+/// any other provider rather than accepting it and doing nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RootfsRebuild {
+    /// Keep the seed as it came.  The default, because it is what every
+    /// board did before the key existed: a key that changes what existing
+    /// boards build the moment it lands is not a key, it is a migration.
+    #[default]
+    None,
+    /// Rebuild `@system` with the board's flags: the base set every Gentoo
+    /// system has, which is most of what a stage3 is.
+    System,
+    /// Rebuild `@world`: `@system` plus whatever else the seed recorded in
+    /// its world file.  On a stage3 that is a handful more packages, and on
+    /// a target that has already been built into, everything.
+    World,
+}
+
+impl RootfsRebuild {
+    /// Parse a `ROOTFS_REBUILD` board.conf value.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "none" => Some(Self::None),
+            "system" => Some(Self::System),
+            "world" => Some(Self::World),
+            _ => Option::None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::System => "system",
+            Self::World => "world",
+        }
+    }
+
+    /// The portage set to rebuild, or `None` when the seed is kept.
+    pub fn set(&self) -> Option<&'static str> {
+        match self {
+            Self::None => Option::None,
+            Self::System => Some("@system"),
+            Self::World => Some("@world"),
+        }
+    }
+}
+
 /// When the `debootstrap --foreign` second stage runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SecondStage {
@@ -470,7 +526,7 @@ impl FedoraImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{Debootstrap, RootfsProvider, SecondStage};
+    use super::{Debootstrap, RootfsProvider, RootfsRebuild, SecondStage};
 
     #[test]
     fn only_alpine_and_fedora_need_the_overlay() {
@@ -624,6 +680,34 @@ mod tests {
         for s in [SecondStage::Chroot, SecondStage::FirstBoot] {
             assert_eq!(SecondStage::parse(s.name()), Some(s));
         }
+    }
+
+    /// The default has to be what every board already did, or the key
+    /// rebuilds 22 boards the day it lands.
+    #[test]
+    fn seed_rebuild_defaults_to_keeping_the_seed() {
+        assert_eq!(RootfsRebuild::default(), RootfsRebuild::None);
+        assert_eq!(RootfsRebuild::default().set(), None);
+    }
+
+    #[test]
+    fn seed_rebuild_round_trips_through_parse() {
+        for r in [
+            RootfsRebuild::None,
+            RootfsRebuild::System,
+            RootfsRebuild::World,
+        ] {
+            assert_eq!(RootfsRebuild::parse(r.name()), Some(r));
+        }
+        assert_eq!(RootfsRebuild::parse("all"), None);
+        assert_eq!(RootfsRebuild::parse(""), None);
+    }
+
+    /// The value names a portage set, and only these two are sets.
+    #[test]
+    fn only_a_rebuild_names_a_set() {
+        assert_eq!(RootfsRebuild::System.set(), Some("@system"));
+        assert_eq!(RootfsRebuild::World.set(), Some("@world"));
     }
 
     #[test]

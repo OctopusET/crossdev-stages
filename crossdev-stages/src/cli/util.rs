@@ -125,6 +125,7 @@ pub fn default_board_config(arch: &str) -> board::BoardConfig {
         suite: None,
         mirror: None,
         second_stage: crate::provider::SecondStage::default(),
+        rootfs_rebuild: crate::provider::RootfsRebuild::default(),
         alpine_branch: None,
         alpine_mirror: None,
         alpine_repos: None,

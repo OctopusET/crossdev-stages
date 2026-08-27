@@ -256,6 +256,7 @@ by `uboot`.
 | `BOOT_DTB_NAME` | no | DTB to boot, when `BOARD_DTB_GLOB` matches more than one |
 | `ISA_STRICT` | no | `false` downgrades an unrunnable binary to a warning (default: fail) |
 | `ROOTFS_PROVIDER` | no | Who fills the image rootfs: `gentoo` (default; stage3 + cross-emerge + OpenRC), `debian` or `ubuntu` (debootstrap + systemd), `alpine` (apk + OpenRC), `fedora` (container base image + dnf5 + systemd), `buildroot` (defconfig build), or `none` (board hooks own it) |
+| `ROOTFS_REBUILD` | no | gentoo provider: how much of the stage3 seed to rebuild with the board's CFLAGS: `none` (default, keep it as it came), `system`, `world` |
 | `DEBIAN_SUITE` | no | debian provider: suite to debootstrap (default `stable`) |
 | `DEBIAN_MIRROR` | no | debian provider: mirror URL (default `https://deb.debian.org/debian`) |
 | `UBUNTU_SUITE` | yes for `ubuntu` | Suite codename, e.g. `noble`; Ubuntu has no rolling alias to default to |
@@ -297,6 +298,21 @@ the board's extra packages come from
 buildroot's own defconfig build and unpacks the rootfs tar it emits, so the
 package set is the defconfig and nothing else. `none` leaves it to board
 hooks.
+
+The gentoo provider seeds from a stage3 that Gentoo built with Gentoo's
+flags, and `deps` only ever adds to it: the board's package list and
+everything it pulls in are compiled with `BOARD_CFLAGS`, while the packages
+the seed already provides are not. On a freshly seeded i686 target that is
+285 of 360 packages carrying `-O2 -march=i686 -pipe` under a board declaring
+`-O2 -march=pentium3 -pipe`. `deps` reports the split on every build, set or
+not. `ROOTFS_REBUILD` decides what to do about it: `none` (the default, and
+what every board did before the key existed) keeps the seed; `system`
+rebuilds `@system` with the board's flags before the board's own list is
+emerged; `world` rebuilds `@world`. Both are a from-source rebuild of the
+base system, which is hours. The key is the gentoo provider's alone -- a
+debian, alpine, fedora or buildroot rootfs has no `@system` to rebuild -- and
+board.conf refuses it on any other provider rather than parsing it and doing
+nothing.
 
 The debootstrap providers differ only in keyring, mirror and suite naming:
 Ubuntu keeps everything but amd64/i386 on `ports.ubuntu.com`, uses

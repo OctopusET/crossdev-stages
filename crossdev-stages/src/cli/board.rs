@@ -25,6 +25,12 @@ pub fn run(boards_root: &Utf8Path, cmd: BoardCmd) -> Result<()> {
             // Who fills the rootfs decides what most of the rest means,
             // so it is not an optional line.
             println!("Rootfs:         {}", board_cfg.rootfs_provider.name());
+            // How much of the image the board's own CFLAGS reach.  Printed
+            // for every gentoo board, default included, because "none" is
+            // the answer most boards never asked the question about.
+            if board_cfg.rootfs_provider.provisions_stage3() {
+                println!("Seed rebuild:   {}", board_cfg.rootfs_rebuild.name());
+            }
             if let Some(deb) = board_cfg.rootfs_provider.debootstrap() {
                 let suite = board_cfg
                     .suite
