@@ -526,12 +526,16 @@ fn atom_cpn(atom: &str) -> Option<(&str, &str)> {
         .split(':')
         .next()?;
     let (category, rest) = cpn.split_once('/')?;
-    // A dash followed by a digit starts the version; anything else is part of
-    // the name, which is why sys-apps and gst-plugins-base survive this.
-    let package = match rest.rsplit_once('-') {
-        Some((name, tail)) if tail.starts_with(|c: char| c.is_ascii_digit()) => name,
-        _ => rest,
-    };
+    // The FIRST dash followed by a digit starts the version; anything else is
+    // part of the name, which is why sys-apps and gst-plugins-base survive
+    // this.  Taking the last one instead reads the revision as the version and
+    // leaves it behind: docbook-xml-dtd-4.1.2-r7 came back as
+    // docbook-xml-dtd-4.1.2.
+    let bytes = rest.as_bytes();
+    let package = rest
+        .char_indices()
+        .find(|&(i, ch)| ch == '-' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit))
+        .map_or(rest, |(i, _)| &rest[..i]);
     Some((category, package))
 }
 
@@ -780,14 +784,21 @@ impl SeedSurvey {
                     board += 1;
                 } else {
                     *others.entry(flags).or_default() += 1;
-                    // `=cat/pf` pins the version already installed: a seed
-                    // rebuild is about the flags, not about moving versions.
+                    // cat/pn, not the installed =cat/pf.  A stage3 seed is
+                    // old enough that some of its versions are gone from the
+                    // tree -- =app-text/scdoc-1.11.5 was, and an atom nothing
+                    // satisfies fails dependency resolution outright, which
+                    // --keep-going cannot rescue because nothing has started.
                     if let (Some(c), Some(p)) = (
                         cat.file_name().to_str(),
                         pkg.file_name().to_str(),
                     ) {
+                        // Skip portage's half-merged `-MERGING-<pf>` dirs;
+                        // they are not packages.
                         if !p.starts_with('-') {
-                            mismatched.push(format!("={c}/{p}"));
+                            if let Some((c, pn)) = atom_cpn(&format!("{c}/{p}")) {
+                                mismatched.push(format!("{c}/{pn}"));
+                            }
                         }
                     }
                 }
@@ -795,6 +806,7 @@ impl SeedSurvey {
         }
         let other = others.into_iter().max_by_key(|(_, n)| *n);
         mismatched.sort();
+        mismatched.dedup();
         Self { total, board, other, mismatched }
     }
 
@@ -2801,6 +2813,23 @@ mod tests {
     use crate::board::BoardConfig;
     use crate::target::Target;
     use camino::Utf8PathBuf;
+
+    /// A VDB directory name carries the revision too, and reading the version
+    /// from the last dash instead of the first left it in: the seed rebuild
+    /// then asked for a package called `docbook-xml-dtd-4.1.2`.
+    #[test]
+    fn a_revision_is_part_of_the_version_not_the_name() {
+        assert_eq!(
+            atom_cpn("app-text/docbook-xml-dtd-4.1.2-r7"),
+            Some(("app-text", "docbook-xml-dtd"))
+        );
+        assert_eq!(atom_cpn("net-dns/c-ares-1.34.6"), Some(("net-dns", "c-ares")));
+        assert_eq!(atom_cpn("=sys-libs/zlib-1.3.2-r1"), Some(("sys-libs", "zlib")));
+        assert_eq!(
+            atom_cpn("media-libs/gst-plugins-base"),
+            Some(("media-libs", "gst-plugins-base"))
+        );
+    }
 
     fn board_with(fragments: &[&str]) -> BoardConfig {
         let mut board = crate::cli::util::default_board_config("riscv64");
