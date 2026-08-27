@@ -286,6 +286,11 @@ by `uboot`.
 | `TAGS` | no | Labels: arch, SoC, vendor, and `testing`. What CI selects on |
 | `DESCRIPTION` | no | One-line note shown by `board info` |
 
+There is no `BOARD_LDFLAGS` key.  Boards get the Gentoo profile's
+`LDFLAGS="-Wl,-O1 -Wl,--as-needed"`; a `make.conf` line would replace that
+value rather than add to it, and the store key hashes CFLAGS alone, so two
+boards differing only in LDFLAGS would share binary packages.
+
 ### Rootfs providers
 
 `ROOTFS_PROVIDER` decides who fills the image rootfs. `gentoo` (the default)

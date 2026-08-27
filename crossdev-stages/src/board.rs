@@ -13,7 +13,6 @@ pub struct BoardConfig {
     pub cflags: Option<String>,         // BOARD_CFLAGS; None → use default_cflags(arch)
     /// INCLUDE, kept so hooks can source the same files the loader merged.
     pub includes: Vec<String>,
-    pub ldflags: Option<String>, // BOARD_LDFLAGS; probably never needed (profile default is fine)
     pub rustflags: Option<String>, // BOARD_RUSTFLAGS; cross-compile target-cpu is handled by rust-std
     pub gcc_version: Option<String>, // BOARD_GCC_VERSION; None → highest installed slot
     pub cross_compile: String,     // e.g. "riscv64-unknown-linux-gnu-"
@@ -417,7 +416,6 @@ fn parse(name: &str, path: &Utf8Path, content: &str) -> Result<BoardConfig> {
         arch: req!("BOARD_ARCH"),
         chost_override: kv.get("CHOST").cloned(),
         cflags: kv.get("BOARD_CFLAGS").cloned(),
-        ldflags: kv.get("BOARD_LDFLAGS").cloned(),
         rustflags: kv.get("BOARD_RUSTFLAGS").cloned(),
         gcc_version: kv.get("BOARD_GCC_VERSION").cloned(),
         cross_compile: req!("CROSS_COMPILE"),

@@ -51,9 +51,6 @@ pub async fn run(
                 println!("Board:      {}{tags}", board_cfg.name);
                 println!("Arch:       {}", board_cfg.arch);
                 println!("CFLAGS:     {}", board_cfg.effective_cflags());
-                if let Some(ldflags) = &board_cfg.ldflags {
-                    println!("LDFLAGS:    {ldflags}");
-                }
                 if let Some(rustflags) = &board_cfg.rustflags {
                     println!("RUSTFLAGS:  {rustflags}");
                 }

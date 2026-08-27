@@ -112,7 +112,6 @@ pub fn default_board_config(arch: &str) -> board::BoardConfig {
         arch: arch.to_string(),
         chost_override: None,
         cflags: None,
-        ldflags: None,
         rustflags: None,
         gcc_version: None,
         cross_compile: format!(
