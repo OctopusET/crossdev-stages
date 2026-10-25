@@ -20,15 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'crossdev-stages -> ../target'
+      - name: Format
+        run: cargo fmt --all --check
       - name: Build
-        run: cargo build --workspace --release
+        run: cargo build --workspace --release --locked
       - name: Test
-        run: cargo test --workspace
-      - name: Clippy (advisory)
-        run: cargo clippy --workspace --all-targets || true
+        run: cargo test --workspace --locked
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   boards:
     name: board configs parse
