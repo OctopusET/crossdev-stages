@@ -583,7 +583,7 @@ EOF
         // The store only captures /usr/<chost>/; the compiler driver and
         // friends live on the sandbox rootfs.  Replay them if this sandbox
         // doesn't carry them (fresh unpack, or last used with another gcc).
-        self.ensure_host_payload(target_arch, &chost, &store_dir)?;
+        self.ensure_host_payload(target_arch, chost, &store_dir)?;
         let portage_db_dir = store_dir.join(".portage-db");
         let binpkgs_cross_dir = store_dir.join(".binpkgs-cross");
         std::fs::create_dir_all(&portage_db_dir)?;

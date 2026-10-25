@@ -195,7 +195,7 @@ impl Target {
             atoms.retain(|a| *a != "sys-apps/net-tools");
             atoms.insert(0, "--keep-going");
         }
-        portage.cross_emerge(&chost, &atoms)?;
+        portage.cross_emerge(chost, &atoms)?;
 
         tracing::info!("Cross-emerging portage…");
         portage.cross_emerge_build(chost, &["sys-apps/portage"])?;
@@ -265,7 +265,7 @@ impl Target {
         }
 
         tracing::info!("Rebuilding @world in target…");
-        portage.cross_emerge_world(&chost)?;
+        portage.cross_emerge_world(chost)?;
 
         self.update_ldconfig(ws, sandbox, board)?;
         std::fs::write(self.dir.join(".updated"), chrono::Utc::now().to_rfc3339())?;
