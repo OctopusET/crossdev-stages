@@ -18,6 +18,8 @@ use crate::workspace::{store_key, Workspace};
 pub struct Sandbox {
     pub dir: Utf8PathBuf,
     pub arch: String,
+    /// `portageq envvar CHOST` inside this sandbox, asked once.
+    host_chost: std::sync::OnceLock<String>,
 }
 
 impl Sandbox {
@@ -26,7 +28,7 @@ impl Sandbox {
         let arch = std::fs::read_to_string(dir.join(".arch"))
             .map(|s| s.trim().to_string())
             .map_err(|_| Error::SandboxNotFound(dir.to_string()))?;
-        Ok(Self { dir, arch })
+        Ok(Self { dir, arch, host_chost: Default::default() })
     }
 
     /// Create a new sandbox by unpacking a stage3 source tarball (catalyst: `source_path`).
@@ -44,6 +46,7 @@ impl Sandbox {
         Ok(Self {
             dir,
             arch: arch.to_string(),
+            host_chost: Default::default(),
         })
     }
 
@@ -206,6 +209,44 @@ impl Sandbox {
     /// different gcc spec or CFLAGS keys a different dir), and never
     /// mutated while `.complete` is set -- the marker is written only
     /// after the full setup finishes.
+    /// Whether `chost` is this sandbox's own CHOST.
+    ///
+    /// Then there is no cross toolchain to build: gcc-config and
+    /// binutils-config already provide `<chost>-gcc`, `-ld`, `-ar`,
+    /// `-readelf` and `-pkg-config`, every name the rest of this tree uses.
+    /// An aarch64 host and an aarch64 board, or an i686 sandbox (unpacked
+    /// from stage3-i686) and a Pentium III.  `/usr/<chost>` is then
+    /// gcc-config's own directory, so no store may be mounted over it.
+    pub fn is_own_chost(&self, chost: &str) -> Result<bool> {
+        if self.host_chost.get().is_none() {
+            let asked = Portage::new(&self.runner()).host_chost()?;
+            let _ = self.host_chost.set(asked);
+        }
+        Ok(self.host_chost.get().map(String::as_str) == Some(chost))
+    }
+
+    /// The multilib ABI of this sandbox that `chost` names, if any.
+    ///
+    /// crossdev refuses to build a cross toolchain whose tuple is one of the
+    /// host's CHOST_<abi> values: on an amd64 multilib profile CHOST_x86 is
+    /// i686-pc-linux-gnu.  Reusing that ABI through `gcc -m32` is no answer
+    /// -- it links the host's 32-bit startfiles, built with the amd64
+    /// profile's CFLAGS_x86 (-mfpmath=sse), which mark every binary as
+    /// needing x86-64-baseline (SSE2).  A board of that tuple is built in a
+    /// sandbox of its own arch instead.
+    fn multilib_abi_named(&self, chost: &str) -> Result<Option<String>> {
+        let out = self.runner().run_output(
+            "for abi in $(portageq envvar MULTILIB_ABIS); do \
+                 printf '%s %s\n' \"$abi\" \"$(portageq envvar CHOST_$abi)\"; \
+             done",
+        )?;
+        Ok(out
+            .lines()
+            .filter_map(|l| l.split_once(' '))
+            .find(|(_, tuple)| *tuple == chost)
+            .map(|(abi, _)| abi.to_string()))
+    }
+
     pub fn setup_crossdev(
         &self,
         ws: &Workspace,
@@ -220,6 +261,27 @@ impl Sandbox {
         let chost = board.chost();
         let cflags = board.effective_cflags();
         let (_canonical, hash) = crate::cflags::canonicalize(&cflags);
+
+        if self.is_own_chost(&chost)? {
+            std::fs::create_dir_all(ws.binpkgs_dir().join(&chost).join(&hash))?;
+            Self::write_host_emerge(&self.runner(), &chost)?;
+            tracing::info!(
+                "{chost} is this sandbox's own CHOST; its toolchain is the board's, \
+                 so there is no prefix to build."
+            );
+            return Ok(());
+        }
+        if let Some(abi) = self.multilib_abi_named(&chost)? {
+            return Err(Error::CommandFailed {
+                code: 1,
+                reason: format!(
+                    "{chost} is this sandbox's {abi} ABI, and crossdev will not build a \
+                     toolchain under a host tuple. Build this board in a sandbox of its \
+                     own arch (`sandbox setup --arch {}`), whose toolchain is already it.",
+                    board.arch
+                ),
+            });
+        }
 
         // Resolve gcc spec from CLI > board > auto-detect.
         // A single number ("15") selects the slot; any longer version ("15.2",
@@ -441,6 +503,28 @@ impl Sandbox {
     /// Use this for any operation that reads or writes the cross-toolchain
     /// (image builds, target updates, etc.).  The lower (immutable store)
     /// must already be marked complete by [`Self::setup_crossdev`].
+    /// `/usr/bin/<chost>-emerge` for a board whose CHOST is this sandbox's.
+    ///
+    /// emerge is the one `<chost>-*` name a native Gentoo does not have, and
+    /// every caller here spells it that way.  PORTAGE_CONFIGROOT is /target
+    /// because the board's CFLAGS live in its make.conf; PKGDIR, FEATURES
+    /// and the two directories are set here instead of there because
+    /// /target/etc/portage ships in the image.
+    fn write_host_emerge(runner: &SandboxRunner, chost: &str) -> Result<()> {
+        runner.run(&format!(
+            "cat > /usr/bin/{chost}-emerge <<'EOF'
+#!/bin/sh
+export PORTAGE_CONFIGROOT=${{PORTAGE_CONFIGROOT:-/target}}
+export PKGDIR=${{PKGDIR:-/binpkgs}}
+export PORTAGE_TMPDIR=${{PORTAGE_TMPDIR:-/dev/shm}}
+export PORTAGE_LOGDIR=${{PORTAGE_LOGDIR:-/var/log/portage}}
+export FEATURES=\"${{FEATURES}} buildpkg\"
+exec emerge --root-deps=rdeps \"$@\"
+EOF
+             chmod 755 /usr/bin/{chost}-emerge"
+        ))
+    }
+
     pub fn runner_for_board(
         &self,
         ws: &Workspace,
@@ -466,6 +550,13 @@ impl Sandbox {
         cflags_hash: &str,
         gcc_spec: &str,
     ) -> Result<SandboxRunner> {
+        // Decided from the chost alone: this entry point has no BoardConfig.
+        // Returning before the store path is computed also keeps
+        // create_dir_all below from conjuring a store dir with no
+        // `.complete`, which `store list` and `store gc` would disagree on.
+        if self.is_own_chost(chost)? {
+            return Ok(self.runner());
+        }
         let store_dir = ws
             .store_dir()
             .join(store_key(chost, cflags_hash, gcc_spec));

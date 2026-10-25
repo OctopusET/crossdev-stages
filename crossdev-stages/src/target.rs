@@ -169,7 +169,7 @@ impl Target {
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         tracing::info!("Preparing target portage configuration…");
-        self.prepare_portage_with_cflags(ws, chost, &key.cflags, gcc_spec)?;
+        self.prepare_portage_with_cflags(ws, sandbox, chost, &key.cflags, gcc_spec)?;
 
         let runner = sandbox
             .runner_for_chost(ws, &self.arch, chost, hash, gcc_spec)?
@@ -228,7 +228,7 @@ impl Target {
         // one, write nothing: replacing a board's CFLAGS with the arch
         // baseline would make the target lie about its own contents.
         if board.is_some() {
-            self.prepare_portage_with_cflags(ws, chost, &key.cflags, gcc_spec)?;
+            self.prepare_portage_with_cflags(ws, sandbox, chost, &key.cflags, gcc_spec)?;
         }
 
         let runner = sandbox
@@ -244,11 +244,18 @@ impl Target {
         // prefix's package.mask/pin-gcc, which blocks upgrades past the
         // installed version, does not abort the run when gcc is already there.
         // No quoting: the atom is its own argv element (run_emerge_argv).
-        let gcc_atom = format!("=sys-devel/gcc-{gcc_spec}*");
-        tracing::info!(gcc_atom = %gcc_atom, "Updating crossdev prefix: gcc, binutils-libs, @system…");
-        portage.cross_emerge_crossdev(chost, &["--noreplace", &gcc_atom])?;
-        portage.cross_emerge_crossdev(chost, &["sys-libs/binutils-libs"])?;
-        portage.cross_emerge_crossdev(chost, &["-u", "system"])?;
+        // A board whose CHOST is the sandbox's own has no prefix, so no
+        // toolchain of its own to update: the sandbox's is updated with the
+        // sandbox.
+        if sandbox.is_own_chost(chost)? {
+            tracing::info!("{chost} is this sandbox's own CHOST; no cross toolchain to update.");
+        } else {
+            let gcc_atom = format!("=sys-devel/gcc-{gcc_spec}*");
+            tracing::info!(gcc_atom = %gcc_atom, "Updating crossdev prefix: gcc, binutils-libs, @system…");
+            portage.cross_emerge_crossdev(chost, &["--noreplace", &gcc_atom])?;
+            portage.cross_emerge_crossdev(chost, &["sys-libs/binutils-libs"])?;
+            portage.cross_emerge_crossdev(chost, &["-u", "system"])?;
+        }
 
         tracing::info!("Rebuilding @world in target…");
         portage.cross_emerge_world(&chost)?;
@@ -316,6 +323,7 @@ impl Target {
     pub fn prepare_portage_with_cflags(
         &self,
         ws: &Workspace,
+        sandbox: &Sandbox,
         chost: &str,
         cflags: &str,
         gcc_spec: &str,
@@ -345,11 +353,17 @@ impl Target {
         // store-resident crossdev prefix so the target stage uses the
         // correct Gentoo profile.  The (chost, cflags-hash, gcc-spec)
         // keyed store dir is the source of truth post-Phase 3.
+        //
+        // A board whose CHOST is the sandbox's own has no prefix, and the
+        // sandbox's /etc/portage is the profile for that exact CHOST.
         let (_, hash) = crate::cflags::canonicalize(cflags);
-        let src_portage = ws
-            .store_dir()
-            .join(crate::workspace::store_key(chost, &hash, gcc_spec))
-            .join("etc/portage");
+        let src_portage = if sandbox.is_own_chost(chost)? {
+            sandbox.dir.join("etc/portage")
+        } else {
+            ws.store_dir()
+                .join(crate::workspace::store_key(chost, &hash, gcc_spec))
+                .join("etc/portage")
+        };
 
         let src_profile_dir = src_portage.join("profile");
         if src_profile_dir.is_dir() {
@@ -426,11 +440,27 @@ fn guard_provider(dir: &camino::Utf8Path, name: &str, provider: &str) -> Result<
 /// baselayout creates /bin as a real dir and every subsequent emerge
 /// collides.  A split-usr target keeps the link verbatim.
 fn translate_profile_link(link: &std::path::Path, split_usr_target: bool) -> std::path::PathBuf {
-    if split_usr_target {
-        link.to_path_buf()
+    let link = if split_usr_target {
+        link.to_string_lossy().into_owned()
     } else {
-        link.to_string_lossy().replace("/split-usr/", "/").into()
+        link.to_string_lossy().replace("/split-usr/", "/")
+    };
+    reroot_profile_link(&link)
+}
+
+/// Re-anchor a profile link so it reaches the same tree from both places the
+/// target's `/etc/portage` is read: during the build, with the target at
+/// /target inside the sandbox, and after boot, as /.  Four `..` satisfies
+/// both; from /etc/portage the extra ones stop at /.  A crossdev prefix's
+/// link has four already (it sits at /usr/<chost>/etc/portage); the
+/// sandbox's own has two, which from /target/etc/portage resolves into
+/// /target/var/db/repos, which does not exist.
+fn reroot_profile_link(link: &str) -> std::path::PathBuf {
+    let tail = link.trim_start_matches("../");
+    if tail.starts_with('/') {
+        return link.into();
     }
+    format!("../../../../{tail}").into()
 }
 
 /// Remove a target directory (via hakoniwa to handle root-owned files).
@@ -554,22 +584,43 @@ mod tests {
         );
         assert_eq!(
             translate_profile_link(link, false),
-            Path::new("../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv32/ilp32/musl")
+            Path::new(
+                "../../../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv32/ilp32/musl"
+            )
         );
     }
 
     #[test]
-    fn profile_link_kept_verbatim_for_split_usr_target() {
+    fn profile_link_keeps_split_usr_for_a_split_usr_target() {
         let link = Path::new(
             "../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/split-usr/rv32/ilp32/musl",
         );
-        assert_eq!(translate_profile_link(link, true), link);
+        assert_eq!(
+            translate_profile_link(link, true),
+            Path::new(concat!(
+                "../../../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/",
+                "split-usr/rv32/ilp32/musl"
+            ))
+        );
+    }
+
+    /// The sandbox's own link is two deep, and read from /target it lands in
+    /// /target/var/db/repos, which does not exist.
+    #[test]
+    fn a_profile_link_reaches_the_tree_from_both_roots() {
+        let p = "var/db/repos/gentoo/profiles/default/linux/x86/23.0/i686";
+        let want = format!("../../../../{p}");
+        assert_eq!(translate_profile_link(Path::new(&format!("../../{p}")), true), Path::new(&want));
+        assert_eq!(translate_profile_link(Path::new(&want), true), Path::new(&want));
     }
 
     #[test]
-    fn profile_link_without_split_usr_segment_is_unchanged() {
+    fn profile_link_without_split_usr_segment_keeps_its_profile() {
         let link =
             Path::new("../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv64/lp64d");
-        assert_eq!(translate_profile_link(link, false), link);
+        assert_eq!(
+            translate_profile_link(link, false),
+            Path::new("../../../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv64/lp64d")
+        );
     }
 }

@@ -2396,7 +2396,7 @@ pub fn build(
         // Other providers own /target -- no portage config is written into it.
         let board_cflags = board.effective_cflags();
         let gcc_spec = sandbox.gcc_spec_for(board, None)?;
-        target.prepare_portage_with_cflags(ws, &board.chost(), &board_cflags, &gcc_spec)?;
+        target.prepare_portage_with_cflags(ws, sandbox, &board.chost(), &board_cflags, &gcc_spec)?;
         let (canonical, _) = crate::cflags::canonicalize(&board_cflags);
         let hash = crate::cflags::toolchain_key(board);
         tracing::info!("Target make.conf CFLAGS={canonical:?} (key {hash})");
