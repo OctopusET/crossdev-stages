@@ -236,12 +236,21 @@ fn remove_make_conf_var(file: &Utf8Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Print the tail of every recent portage log that recorded a failure.
-/// Falls back to naming the newest logs when nothing matched, so the failure
-/// is never reported with no way to look further.
+/// Print the tail of every portage log written since `since` (Unix seconds)
+/// that recorded a failure.  /var/log/portage outlives the container, so an
+/// unbounded look picks up the failure of some earlier build.  Falls back to
+/// naming the newest logs when nothing matched, so the failure is never
+/// reported with no way to look further.
+fn show_build_failures(since: u64) -> String {
+    format!(
+        "logs=$(find /var/log/portage -mindepth 2 -name '*.log' -newermt @{since} 2>/dev/null)\n{}",
+        SHOW_BUILD_FAILURES
+    )
+}
+
 const SHOW_BUILD_FAILURES: &str = r#"
-logs=$(ls -t /var/log/portage/*/*.log 2>/dev/null | head -n 40)
-[ -n "$logs" ] || exit 0
+[ -n "$logs" ] || { printf "\nNo portage log was written by this emerge.\n"; exit 0; }
+logs=$(ls -t $logs | head -n 40)
 hit=$(grep -lE " \\* ERROR: |failed \\(.* phase\\)" $logs 2>/dev/null | head -n 3)
 if [ -n "$hit" ]; then
     for f in $hit; do
@@ -253,6 +262,12 @@ else
     printf "%s\n" "$logs" | head -n 5
 fi
 "#;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
 
 /// Remove a variable from a make.conf, leaving everything else alone.
 pub fn unset_make_conf_var(file: &Utf8Path, name: &str) -> Result<()> {
@@ -324,9 +339,10 @@ impl<'a> Portage<'a> {
     }
 
     fn run_emerge(&self, cmd: &str) -> Result<()> {
+        let since = now_secs();
         let result = self.runner.run(cmd);
         if result.is_err() {
-            let _ = self.runner.run(SHOW_BUILD_FAILURES);
+            let _ = self.runner.run(&show_build_failures(since));
         }
         result
     }
@@ -343,9 +359,10 @@ impl<'a> Portage<'a> {
             .chain(packages)
             .copied()
             .collect();
+        let since = now_secs();
         let result = self.runner.run_argv(&argv);
         if result.is_err() {
-            let _ = self.runner.run(SHOW_BUILD_FAILURES);
+            let _ = self.runner.run(&show_build_failures(since));
         }
         result
     }
