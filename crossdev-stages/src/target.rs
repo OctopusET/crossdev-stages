@@ -165,7 +165,9 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Bootstrapping target", board, &key);
-        let binpkgs_dir = ws.binpkgs_dir().join(chost).join(&key.binpkgs_key);
+        let binpkgs_dir = ws
+            .binpkgs_dir()
+            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         tracing::info!("Preparing target portage configuration…");
@@ -220,7 +222,9 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Updating target", board, &key);
-        let binpkgs_dir = ws.binpkgs_dir().join(chost).join(&key.binpkgs_key);
+        let binpkgs_dir = ws
+            .binpkgs_dir()
+            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         // With a board, leave the target's make.conf saying what the rebuild
@@ -279,7 +283,9 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Installing into target", board, &key);
-        let binpkgs_dir = ws.binpkgs_dir().join(chost).join(&key.binpkgs_key);
+        let binpkgs_dir = ws
+            .binpkgs_dir()
+            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
         std::fs::create_dir_all(&binpkgs_dir)?;
         let runner = sandbox
             .runner_for_chost(ws, &self.arch, chost, hash, gcc_spec)?

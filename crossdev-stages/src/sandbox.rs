@@ -268,7 +268,12 @@ impl Sandbox {
         let (_canonical, hash) = crate::cflags::canonicalize(&cflags);
 
         if self.is_own_chost(&chost)? {
-            std::fs::create_dir_all(ws.binpkgs_dir().join(&chost).join(&hash))?;
+            let gcc_spec = self.gcc_spec_for(board, gcc_version)?;
+            std::fs::create_dir_all(ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+                &chost,
+                &crate::cflags::binpkg_key(board),
+                &gcc_spec,
+            )))?;
             Self::write_host_emerge(&self.runner(), &chost)?;
             tracing::info!(
                 "{chost} is this sandbox's own CHOST; its toolchain is the board's, \
@@ -324,7 +329,11 @@ impl Sandbox {
         // Shared target binpkg cache: the crossdev prefix make.conf sets
         // PKGDIR=/binpkgs, so every runner that executes {chost}-emerge
         // must bind this dir there.
-        let binpkgs_dir = ws.binpkgs_dir().join(&chost).join(&hash);
+        let binpkgs_dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+            &chost,
+            &crate::cflags::binpkg_key(board),
+            &gcc_spec,
+        ));
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         // Idempotency: `.complete` in a (chost, cflags-hash, gcc-spec) keyed
@@ -767,7 +776,7 @@ EOF
         // PORTAGE_CONFIGROOT=/usr/<chost> and reads THIS make.conf, not
         // the target's -- FEATURES=buildpkg + PKGDIR must live here or
         // they never take effect.  /binpkgs is the in-sandbox bind of
-        // the shared binpkgs/<chost>/<cflags-hash>/ cache.
+        // the shared binpkgs/<chost>/<key>-gcc<spec>/ cache.
         MakeConf {
             arch,
             chost: Some(chost),

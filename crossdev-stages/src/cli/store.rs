@@ -51,10 +51,12 @@ fn update(
         return Ok(());
     }
 
-    let binpkgs_dir = ws
-        .binpkgs_dir()
-        .join(board.chost())
-        .join(crate::cflags::binpkg_key(&board));
+    let gcc_spec = sb.gcc_spec_for(&board, None)?;
+    let binpkgs_dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+        &board.chost(),
+        &crate::cflags::binpkg_key(&board),
+        &gcc_spec,
+    ));
     std::fs::create_dir_all(&binpkgs_dir)?;
 
     let runner = sb
@@ -314,9 +316,8 @@ fn ensure_live_nonempty(live: &LiveSet, boards_root: &Utf8Path) -> Result<()> {
     Ok(())
 }
 
-/// Everything the project's boards can still reach: store keys
-/// (`<chost>/<cflags-hash>-gcc<spec>`) and binpkg cache dirs
-/// (`<chost>/<cflags-hash>`, gcc-spec independent).
+/// Everything the project's boards can still reach: store keys and binpkg
+/// cache dirs, both `<chost>/<key>-gcc<spec>`.
 struct LiveSet {
     store: BTreeSet<Utf8PathBuf>,
     binpkgs: BTreeSet<Utf8PathBuf>,
@@ -356,8 +357,15 @@ fn live_set(ws: &Workspace, boards_root: &Utf8Path) -> Result<LiveSet> {
         // The binpkg cache keys on the workarounds too, so this is not the
         // same hash as the store's; using one for both would have `gc` delete
         // a directory the builder is still writing to.
-        let hash = crate::cflags::binpkg_key(&b);
-        live.binpkgs.insert(Utf8PathBuf::from(b.chost()).join(hash));
+        let key = crate::cflags::binpkg_key(&b);
+        let specs: Vec<&str> = match &b.gcc_version {
+            Some(s) => vec![s.as_str()],
+            None => default_specs.iter().map(String::as_str).collect(),
+        };
+        for spec in specs {
+            live.binpkgs
+                .insert(crate::workspace::binpkg_cache_key(&b.chost(), &key, spec));
+        }
         arches.insert(b.arch.clone());
     }
     // Default-cflags entries: what `target stage1 / update / install`
@@ -368,8 +376,9 @@ fn live_set(ws: &Workspace, boards_root: &Utf8Path) -> Result<LiveSet> {
         let (_, hash) = crate::cflags::canonicalize(crate::stage::default_cflags(&arch));
         for spec in &default_specs {
             live.store.insert(store_key(&chost, &hash, spec));
+            live.binpkgs
+                .insert(crate::workspace::binpkg_cache_key(&chost, &hash, spec));
         }
-        live.binpkgs.insert(Utf8PathBuf::from(chost).join(hash));
     }
     Ok(live)
 }
@@ -447,23 +456,27 @@ mod tests {
     }
 
     #[test]
-    fn binpkg_dirs_classify_without_gcc_spec() {
-        // binpkgs/<chost>/<hash> is shared across gcc specs; live-ness is
-        // (chost, cflags-hash) only.
+    fn binpkg_dirs_classify_by_gcc_spec_too() {
+        // Same flags, another compiler: a different cache, and a stale one
+        // once no board resolves to it.
         let chost = "riscv64-unknown-linux-gnu";
-        let live: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from(chost).join("0123456789abcdef")]
-            .into_iter()
-            .collect();
+        let live: BTreeSet<Utf8PathBuf> = [crate::workspace::binpkg_cache_key(
+            chost,
+            "0123456789abcdef",
+            "16.2",
+        )]
+        .into_iter()
+        .collect();
 
         let entries = vec![
-            entry(chost, "0123456789abcdef"), // live
-            entry(chost, "fedcba9876543210"), // stale
+            entry(chost, "0123456789abcdef-gcc16.2"), // live
+            entry(chost, "0123456789abcdef-gcc15"),   // stale: other compiler
         ];
         let unused = unused_entries(entries, &live);
         let keys: Vec<_> = unused.iter().map(|e| e.rel_key()).collect();
         assert_eq!(
             keys,
-            vec![Utf8PathBuf::from(chost).join("fedcba9876543210")]
+            vec![Utf8PathBuf::from(chost).join("0123456789abcdef-gcc15")]
         );
     }
 

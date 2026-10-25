@@ -600,11 +600,14 @@ fn check_package_lists(
 
 // ── Default implementations ─────────────────────────────────────────────────
 
-/// Per-(chost, cflags-hash) binpkg cache dir for a board's target packages.
-/// Single source for both the build-step runners and default_deps.
-fn board_binpkgs_dir(ws: &Workspace, board: &BoardConfig) -> Result<Utf8PathBuf> {
-    let hash = crate::cflags::binpkg_key(board);
-    let dir = ws.binpkgs_dir().join(board.chost()).join(hash);
+/// A board's binpkg cache dir.  Single source for the build-step runners
+/// and default_deps.
+fn board_binpkgs_dir(ws: &Workspace, sandbox: &Sandbox, board: &BoardConfig) -> Result<Utf8PathBuf> {
+    let key = crate::cflags::binpkg_key(board);
+    let gcc_spec = sandbox.gcc_spec_for(board, None)?;
+    let dir = ws
+        .binpkgs_dir()
+        .join(crate::workspace::binpkg_cache_key(&board.chost(), &key, &gcc_spec));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -666,7 +669,7 @@ fn default_deps(
     let target_runner = sandbox
         .runner_for_board(ws, &board.arch, board)?
         .with_target(&target.dir)
-        .with_binpkgs(&board_binpkgs_dir(ws, board)?)
+        .with_binpkgs(&board_binpkgs_dir(ws, sandbox, board)?)
         .with_extra_ro(&board_dir, BOARD_DIR_IN_CONTAINER);
 
     let board_patches = board_dir.join("portage-patches");
@@ -2469,7 +2472,7 @@ pub fn build(
         // worse ergonomics.  If the drift produced something the board cannot
         // load, the ABI check at the end of assemble says so against the image.
         let _ = crate::binpkg_meta::report(
-            &board_binpkgs_dir(ws, board)?,
+            &board_binpkgs_dir(ws, sandbox, board)?,
             &ws.store_dir()
                 .join(crate::workspace::store_key(&board.chost(), &hash, &gcc_spec)),
         );
@@ -2479,7 +2482,7 @@ pub fn build(
     // PKGDIR=/binpkgs lives in the crossdev prefix make.conf (the config
     // {chost}-emerge actually reads), never in the target's -- the target
     // make.conf ships into images.
-    let binpkgs_dir = board_binpkgs_dir(ws, board)?;
+    let binpkgs_dir = board_binpkgs_dir(ws, sandbox, board)?;
 
     let steps_to_run: Vec<&str> = match steps {
         Some(s) => s.iter().map(String::as_str).collect(),

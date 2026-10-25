@@ -258,6 +258,17 @@ pub fn store_key(chost: &str, cflags_hash: &str, gcc_spec: &str) -> Utf8PathBuf 
     Utf8PathBuf::from(chost).join(format!("{cflags_hash}-gcc{gcc_spec}"))
 }
 
+/// Where a board's binary packages are cached, under `binpkgs/`.
+///
+/// The compiler is part of it for the same reason it is part of
+/// [`store_key`]: the CFLAGS alone do not say what built a package, and a gcc
+/// major changes the C++ ABI and libgcc underneath them.  Keyed on CFLAGS
+/// alone, two toolchains that share a board's flags shared one PKGDIR and
+/// `emerge -k` handed one's packages to the other.
+pub fn binpkg_cache_key(chost: &str, binpkg_key: &str, gcc_spec: &str) -> Utf8PathBuf {
+    store_key(chost, binpkg_key, gcc_spec)
+}
+
 fn dirs_next() -> Utf8PathBuf {
     // ~/.cache
     if let Ok(cache) = std::env::var("XDG_CACHE_HOME") {

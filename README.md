@@ -154,7 +154,7 @@ Everything lives under `~/.cache/crossdev-stages/`:
 | `sandboxes/<name>/` | host stage3 unpacks; `.overlay-upper-*/` dirs hold per-toolchain overlay writes |
 | `targets/<name>/` | cross-compiled target rootfs |
 | `store/<chost>/<cflags-hash>-gcc<ver>/` | immutable crossdev prefix; built once per `(chost, canonical CFLAGS, gcc version)` and overlay-mounted at `/usr/<chost>/` for every build that needs it |
-| `binpkgs/<chost>/<cflags-hash>/` | shared `PKGDIR` for cross-compiled packages so different boards with compatible CFLAGS reuse builds |
+| `binpkgs/<chost>/<key>-gcc<spec>/` | shared `PKGDIR` for cross-compiled packages so boards with the same flags and compiler reuse builds |
 | `builds/<board>/<timestamp>/` | per-image build output, including `build.lock.toml` |
 | `logs/` | build step logs |
 
@@ -486,12 +486,13 @@ wrong in one direction only:
 | Stamp | What is in this cache, and is it still one set? | Stale only | No |
 | Measurement | Does the image we are about to ship work? | Not at all | Yes |
 
-The key is `binpkgs/<chost>/<key>`, where `<key>` hashes the board's CFLAGS
-*and its per-package workarounds*: `WORKAROUND_PKGS` builds named packages with
-different flags, and two boards agreeing on CFLAGS but differing in workarounds
-would otherwise swap binaries neither asked for. The toolchain store keys on
-the CFLAGS alone, because a workaround changes what some packages are compiled
-with and not what compiles them.
+The key is `binpkgs/<chost>/<key>-gcc<spec>`, where `<key>` hashes the board's
+CFLAGS *and its per-package workarounds*: `WORKAROUND_PKGS` builds named
+packages with different flags, and two boards agreeing on CFLAGS but differing
+in workarounds would otherwise swap binaries neither asked for. The gcc spec is
+there because the flags do not say what compiled a package. The toolchain store
+keys on the CFLAGS alone, because a workaround changes what some packages are
+compiled with and not what compiles them.
 
 The stamp is portage's own `Packages` header -- the same fields Gentoo's
 binhost publishes, PROFILE, ELIBC, CHOST, REPO_REVISIONS -- plus a `.build-env`
