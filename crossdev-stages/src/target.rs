@@ -165,9 +165,11 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Bootstrapping target", board, &key);
-        let binpkgs_dir = ws
-            .binpkgs_dir()
-            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
+        let binpkgs_dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+            chost,
+            &key.binpkgs_key,
+            gcc_spec,
+        ));
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         tracing::info!("Preparing target portage configuration…");
@@ -222,9 +224,11 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Updating target", board, &key);
-        let binpkgs_dir = ws
-            .binpkgs_dir()
-            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
+        let binpkgs_dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+            chost,
+            &key.binpkgs_key,
+            gcc_spec,
+        ));
         std::fs::create_dir_all(&binpkgs_dir)?;
 
         // With a board, leave the target's make.conf saying what the rebuild
@@ -283,9 +287,11 @@ impl Target {
         let key = self.build_key(sandbox, board)?;
         let (chost, hash, gcc_spec) = key.parts();
         self.announce("Installing into target", board, &key);
-        let binpkgs_dir = ws
-            .binpkgs_dir()
-            .join(crate::workspace::binpkg_cache_key(chost, &key.binpkgs_key, gcc_spec));
+        let binpkgs_dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+            chost,
+            &key.binpkgs_key,
+            gcc_spec,
+        ));
         std::fs::create_dir_all(&binpkgs_dir)?;
         let runner = sandbox
             .runner_for_chost(ws, &self.arch, chost, hash, gcc_spec)?
@@ -619,8 +625,14 @@ mod tests {
     fn a_profile_link_reaches_the_tree_from_both_roots() {
         let p = "var/db/repos/gentoo/profiles/default/linux/x86/23.0/i686";
         let want = format!("../../../../{p}");
-        assert_eq!(translate_profile_link(Path::new(&format!("../../{p}")), true), Path::new(&want));
-        assert_eq!(translate_profile_link(Path::new(&want), true), Path::new(&want));
+        assert_eq!(
+            translate_profile_link(Path::new(&format!("../../{p}")), true),
+            Path::new(&want)
+        );
+        assert_eq!(
+            translate_profile_link(Path::new(&want), true),
+            Path::new(&want)
+        );
     }
 
     #[test]
@@ -629,7 +641,9 @@ mod tests {
             Path::new("../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv64/lp64d");
         assert_eq!(
             translate_profile_link(link, false),
-            Path::new("../../../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv64/lp64d")
+            Path::new(
+                "../../../../var/db/repos/gentoo/profiles/default/linux/riscv/23.0/rv64/lp64d"
+            )
         );
     }
 }

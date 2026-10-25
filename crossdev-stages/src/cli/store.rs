@@ -124,9 +124,7 @@ fn list(ws: &Workspace) -> Result<()> {
             if !stamp.is_empty() {
                 let mut shown: Vec<String> = stamp
                     .iter()
-                    .filter(|(pkg, _)| {
-                        matches!(pkg.as_str(), "gcc" | "glibc" | "binutils")
-                    })
+                    .filter(|(pkg, _)| matches!(pkg.as_str(), "gcc" | "glibc" | "binutils"))
                     .map(|(pkg, version)| format!("{pkg} {version}"))
                     .collect();
                 shown.sort();

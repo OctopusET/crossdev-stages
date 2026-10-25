@@ -181,7 +181,10 @@ mod tests {
             ("riscv64-unknown-linux-gnu", "riscv64gc-unknown-linux-gnu"),
             ("riscv32-unknown-linux-musl", "riscv32gc-unknown-linux-musl"),
             ("aarch64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"),
-            ("armv7a-unknown-linux-gnueabihf", "armv7-unknown-linux-gnueabihf"),
+            (
+                "armv7a-unknown-linux-gnueabihf",
+                "armv7-unknown-linux-gnueabihf",
+            ),
             // GCC says the vendor is pc here and rustc says unknown.
             ("i586-pc-linux-gnu", "i586-unknown-linux-gnu"),
             ("x86_64-pc-linux-gnu", "x86_64-unknown-linux-gnu"),
@@ -206,7 +209,10 @@ mod tests {
         assert_eq!(te.cxx(), "riscv64-unknown-linux-gnu-g++");
         assert_eq!(te.ar(), "riscv64-unknown-linux-gnu-ar");
         assert_eq!(te.target_triple(), "riscv64gc-unknown-linux-gnu");
-        assert_eq!(te.pkg_config_sysroot_dir(), "/usr/riscv64-unknown-linux-gnu");
+        assert_eq!(
+            te.pkg_config_sysroot_dir(),
+            "/usr/riscv64-unknown-linux-gnu"
+        );
         assert_eq!(
             te.cargo_linker_key(),
             "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER"

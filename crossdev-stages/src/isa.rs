@@ -112,7 +112,10 @@ fn attrs_apply(arch: &str) -> bool {
 /// SSE2, which a Pentium III does not have -- so this is the same layer as
 /// the RISC-V attributes, the one allowed to fail a build.
 fn x86_level_applies(arch: &str) -> bool {
-    matches!(arch, "i386" | "i486" | "i586" | "i686" | "x86" | "x86_64" | "amd64")
+    matches!(
+        arch,
+        "i386" | "i486" | "i586" | "i686" | "x86" | "x86_64" | "amd64"
+    )
 }
 
 /// The x86-64 levels, in order, and the predefined macro that says the
@@ -130,7 +133,11 @@ const X86_LEVELS: &[(&str, &str)] = &[
 /// Every ELF is reported, marked or not: unlike `Tag_RISCV_arch`, a clean
 /// x86 binary carries no level at all, so counting only the marked ones
 /// made a clean image read as one where nothing was checked.
-fn scan_x86_level(runner: &SandboxRunner, root: &str, cross: &str) -> Result<Vec<(String, String)>> {
+fn scan_x86_level(
+    runner: &SandboxRunner,
+    root: &str,
+    cross: &str,
+) -> Result<Vec<(String, String)>> {
     let out = runner.run_output(&format!(
         "find {root} -type f \\( -perm -u+x -o -name '*.so' -o -name '*.so.*' \\) -print0 \\
          | xargs -0 -r -n 1 sh -c '
@@ -169,7 +176,10 @@ fn x86_report(
     let found = scan_x86_level(runner, root, &board.cross_compile)?;
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (path, level) in found.iter().filter(|(_, l)| l.trim() != "none") {
-        groups.entry(level.trim().to_string()).or_default().push(path.clone());
+        groups
+            .entry(level.trim().to_string())
+            .or_default()
+            .push(path.clone());
     }
 
     let mut findings = Vec::new();
@@ -187,9 +197,11 @@ fn x86_report(
     let shown: BTreeSet<String> = expected
         .iter()
         .filter(|m| {
-            ["SSE", "MMX", "AVX", "FXSR", "F16C", "BMI", "POPCNT", "FMA", "AES"]
-                .iter()
-                .any(|k| m.contains(k))
+            [
+                "SSE", "MMX", "AVX", "FXSR", "F16C", "BMI", "POPCNT", "FMA", "AES",
+            ]
+            .iter()
+            .any(|k| m.contains(k))
         })
         .cloned()
         .collect();
@@ -704,10 +716,7 @@ mod tests {
     #[test]
     fn a_pentium3_cannot_run_the_x86_64_baseline() {
         let p3 = macros(&["__MMX__", "__SSE__", "__i686__"]);
-        assert_eq!(
-            x86_missing("x86-64-baseline", &p3),
-            macros(&["sse2"]),
-        );
+        assert_eq!(x86_missing("x86-64-baseline", &p3), macros(&["sse2"]),);
         // A level implies the ones below it.
         assert_eq!(
             x86_missing("x86-64-v3", &p3),
@@ -727,7 +736,6 @@ mod tests {
         assert!(x86_missing("", &v2).is_empty());
         assert!(x86_missing("some-future-level", &v2).is_empty());
     }
-
 
     #[test]
     fn a_version_suffix_is_not_part_of_the_name() {

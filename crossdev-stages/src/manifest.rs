@@ -512,9 +512,11 @@ mod tests {
     #[test]
     fn non_git_sources_are_not_compared() {
         let sha = "4e69c1856bfd9ffb7e9d335a25842fa211628929";
-        assert!(builder_with(&[("kernel", sha, "deadbeef", SourceKind::Local)])
-            .pin_mismatches()
-            .is_empty());
+        assert!(
+            builder_with(&[("kernel", sha, "deadbeef", SourceKind::Local)])
+                .pin_mismatches()
+                .is_empty()
+        );
         assert!(builder_with(&[("kernel", sha, "", SourceKind::Missing)])
             .pin_mismatches()
             .is_empty());

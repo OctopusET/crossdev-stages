@@ -67,10 +67,7 @@ pub async fn run(
 
             let provider = board_cfg.rootfs_provider;
             let needs_toolchain = provider.needs_cross_toolchain(
-                &steps_to_show
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>(),
+                &steps_to_show.iter().map(String::as_str).collect::<Vec<_>>(),
             );
             let sb = if needs_toolchain {
                 ensure_crossdev(
@@ -166,9 +163,15 @@ pub async fn run(
                 if tar {
                     let archive = out_dir.join(format!("{board_name}-flash-bundle.tar.xz"));
                     let status = std::process::Command::new("tar")
-                        .args(["-cf", archive.as_str(), "-I", "xz -T0", "-C",
-                               out_dir.as_str(),
-                               &format!("{board_name}-flash-bundle")])
+                        .args([
+                            "-cf",
+                            archive.as_str(),
+                            "-I",
+                            "xz -T0",
+                            "-C",
+                            out_dir.as_str(),
+                            &format!("{board_name}-flash-bundle"),
+                        ])
                         .status()?;
                     if !status.success() {
                         return Err(crate::error::Error::CommandFailed {
@@ -228,17 +231,17 @@ fn write_sha256(file: &Utf8Path) -> Result<String> {
         }
         hasher.update(&buf[..read]);
     }
-    let digest: String = hasher.finalize().iter().fold(String::new(), |mut acc, byte| {
-        use std::fmt::Write;
-        let _ = write!(acc, "{byte:02x}");
-        acc
-    });
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .fold(String::new(), |mut acc, byte| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{byte:02x}");
+            acc
+        });
 
     let name = file.file_name().unwrap_or_default();
-    std::fs::write(
-        format!("{file}.sha256"),
-        format!("{digest}  {name}\n"),
-    )?;
+    std::fs::write(format!("{file}.sha256"), format!("{digest}  {name}\n"))?;
     Ok(digest)
 }
 
@@ -270,7 +273,9 @@ fn copy_listed_artifacts(src: &Utf8Path, dst: &Utf8Path, manifest: &Utf8Path) ->
             match std::fs::read_to_string(src.join(".image")) {
                 Ok(name) => name.trim().to_string(),
                 Err(_) if optional => {
-                    eprintln!("bundle.list: no packed image (.image marker absent), skipping @image");
+                    eprintln!(
+                        "bundle.list: no packed image (.image marker absent), skipping @image"
+                    );
                     continue;
                 }
                 Err(_) => {
@@ -308,8 +313,12 @@ fn copy_listed_artifacts(src: &Utf8Path, dst: &Utf8Path, manifest: &Utf8Path) ->
 /// Pull flash helpers (partition tables, fastboot.yaml, flash.sh) from
 /// the board source dir into the bundle so the tarball is self-contained.
 fn copy_flash_aux(board_dir: &Utf8Path, dst: &Utf8Path) -> Result<()> {
-    for name in ["partition_4M.json", "partition_universal.json",
-                 "fastboot.yaml", "flash.sh"] {
+    for name in [
+        "partition_4M.json",
+        "partition_universal.json",
+        "fastboot.yaml",
+        "flash.sh",
+    ] {
         let src = board_dir.join(name);
         if src.is_file() {
             std::fs::copy(&src, dst.join(name))?;

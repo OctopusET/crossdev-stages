@@ -167,11 +167,7 @@ impl RootfsProvider {
     pub fn needs_overlay(&self) -> bool {
         match self {
             Self::Alpine | Self::Fedora => true,
-            Self::Gentoo
-            | Self::Debian
-            | Self::Ubuntu
-            | Self::Buildroot
-            | Self::None => false,
+            Self::Gentoo | Self::Debian | Self::Ubuntu | Self::Buildroot | Self::None => false,
         }
     }
 
@@ -513,7 +509,10 @@ impl FedoraImage {
     pub fn url(&self, mirror: &str) -> String {
         let mirror = mirror.trim_end_matches('/');
         let dir = if self.arch == "riscv64" {
-            format!("alt/risc-v/release/{}/Container/riscv64/images", self.release)
+            format!(
+                "alt/risc-v/release/{}/Container/riscv64/images",
+                self.release
+            )
         } else {
             format!(
                 "fedora/linux/releases/{}/Container/{}/images",
@@ -549,11 +548,26 @@ mod tests {
 
     #[test]
     fn parse_known_values() {
-        assert_eq!(RootfsProvider::parse("gentoo"), Some(RootfsProvider::Gentoo));
-        assert_eq!(RootfsProvider::parse("debian"), Some(RootfsProvider::Debian));
-        assert_eq!(RootfsProvider::parse("ubuntu"), Some(RootfsProvider::Ubuntu));
-        assert_eq!(RootfsProvider::parse("alpine"), Some(RootfsProvider::Alpine));
-        assert_eq!(RootfsProvider::parse("fedora"), Some(RootfsProvider::Fedora));
+        assert_eq!(
+            RootfsProvider::parse("gentoo"),
+            Some(RootfsProvider::Gentoo)
+        );
+        assert_eq!(
+            RootfsProvider::parse("debian"),
+            Some(RootfsProvider::Debian)
+        );
+        assert_eq!(
+            RootfsProvider::parse("ubuntu"),
+            Some(RootfsProvider::Ubuntu)
+        );
+        assert_eq!(
+            RootfsProvider::parse("alpine"),
+            Some(RootfsProvider::Alpine)
+        );
+        assert_eq!(
+            RootfsProvider::parse("fedora"),
+            Some(RootfsProvider::Fedora)
+        );
         assert_eq!(
             RootfsProvider::parse("buildroot"),
             Some(RootfsProvider::Buildroot)
@@ -646,7 +660,10 @@ mod tests {
     #[test]
     fn ubuntu_ports_everything_but_x86() {
         let u = Debootstrap::UBUNTU;
-        assert_eq!(u.default_mirror("amd64"), "http://archive.ubuntu.com/ubuntu");
+        assert_eq!(
+            u.default_mirror("amd64"),
+            "http://archive.ubuntu.com/ubuntu"
+        );
         assert_eq!(u.default_mirror("i386"), "http://archive.ubuntu.com/ubuntu");
         assert_eq!(
             u.default_mirror("arm64"),

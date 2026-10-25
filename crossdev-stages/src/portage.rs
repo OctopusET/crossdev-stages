@@ -319,7 +319,11 @@ impl<'a> Portage<'a> {
                  esac
              done | sort"
         ))?;
-        let names: Vec<&str> = broken.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let names: Vec<&str> = broken
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
         if names.is_empty() {
             return Ok(());
         }
@@ -409,7 +413,15 @@ impl<'a> Portage<'a> {
     pub fn cross_update(&self, chost: &str, packages: &[&str]) -> Result<()> {
         let emerge = format!("{chost}-emerge");
         self.run_emerge_argv(
-            &["env", "ROOT=/target", &emerge, "-b", "-k", "-uDN", "--keep-going"],
+            &[
+                "env",
+                "ROOT=/target",
+                &emerge,
+                "-b",
+                "-k",
+                "-uDN",
+                "--keep-going",
+            ],
             packages,
         )
     }
@@ -424,7 +436,10 @@ impl<'a> Portage<'a> {
     /// Cross-emerge with `USE=build` for bootstrapping (baselayout, portage).
     pub fn cross_emerge_build(&self, chost: &str, packages: &[&str]) -> Result<()> {
         let emerge = format!("{chost}-emerge");
-        self.run_emerge_argv(&["env", "USE=build", "ROOT=/target", &emerge, "-b", "-k"], packages)
+        self.run_emerge_argv(
+            &["env", "USE=build", "ROOT=/target", &emerge, "-b", "-k"],
+            packages,
+        )
     }
 
     /// Rebuild the target stage's `@world` with `KERNEL_DIR` pointing at the
@@ -480,8 +495,16 @@ impl<'a> Portage<'a> {
         let atoms: Vec<&str> = atoms.iter().map(String::as_str).collect();
         self.run_emerge_argv(
             &[
-                "env", "ROOT=/target", &emerge, "-b", "--usepkg=n", "--oneshot",
-                "--keep-going", &jobs, "--load-average", &load,
+                "env",
+                "ROOT=/target",
+                &emerge,
+                "-b",
+                "--usepkg=n",
+                "--oneshot",
+                "--keep-going",
+                &jobs,
+                "--load-average",
+                &load,
             ],
             &atoms,
         )

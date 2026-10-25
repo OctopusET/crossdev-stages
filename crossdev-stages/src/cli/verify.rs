@@ -41,7 +41,11 @@ pub fn run(
     };
 
     // Every architecture: can the image load what it ships?
-    let abi = crate::abi::verify(&runner, root, &format!("{}readelf", board_cfg.cross_compile))?;
+    let abi = crate::abi::verify(
+        &runner,
+        root,
+        &format!("{}readelf", board_cfg.cross_compile),
+    )?;
     let mut fatal = crate::abi::print(&abi);
 
     // Every architecture: was any of it built for a CPU this board is not?

@@ -222,11 +222,14 @@ fn digest_of(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().fold(String::new(), |mut acc, byte| {
-        use std::fmt::Write;
-        let _ = write!(acc, "{byte:02x}");
-        acc
-    })
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::new(), |mut acc, byte| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{byte:02x}");
+            acc
+        })
 }
 
 /// Digest of a file's contents, or `absent` -- a file appearing and a file
@@ -323,7 +326,11 @@ fn step_inputs(
 
     match step {
         "deps" => {
-            for name in ["sandbox-packages.txt", "target-packages.txt", "overlay.conf"] {
+            for name in [
+                "sandbox-packages.txt",
+                "target-packages.txt",
+                "overlay.conf",
+            ] {
                 lines.push(format!(
                     "defaults/{name} {}",
                     file_digest(&defaults_root.join(name))
@@ -366,7 +373,11 @@ fn step_inputs(
                 "make.conf {}",
                 file_digest(&board_dir.join("make.conf"))
             ));
-            tree_lines("defaults/scripts", &defaults_root.join("scripts"), &mut lines);
+            tree_lines(
+                "defaults/scripts",
+                &defaults_root.join("scripts"),
+                &mut lines,
+            );
         }
         "pack" => {
             let in_board = board_dir.join("genimage.cfg");
@@ -442,8 +453,22 @@ impl DiskId {
         format!(
             "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-\
              {:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
-            b[14], b[15],
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            b[4],
+            b[5],
+            b[6],
+            b[7],
+            b[8],
+            b[9],
+            b[10],
+            b[11],
+            b[12],
+            b[13],
+            b[14],
+            b[15],
         )
     }
 
@@ -602,12 +627,18 @@ fn check_package_lists(
 
 /// A board's binpkg cache dir.  Single source for the build-step runners
 /// and default_deps.
-fn board_binpkgs_dir(ws: &Workspace, sandbox: &Sandbox, board: &BoardConfig) -> Result<Utf8PathBuf> {
+fn board_binpkgs_dir(
+    ws: &Workspace,
+    sandbox: &Sandbox,
+    board: &BoardConfig,
+) -> Result<Utf8PathBuf> {
     let key = crate::cflags::binpkg_key(board);
     let gcc_spec = sandbox.gcc_spec_for(board, None)?;
-    let dir = ws
-        .binpkgs_dir()
-        .join(crate::workspace::binpkg_cache_key(&board.chost(), &key, &gcc_spec));
+    let dir = ws.binpkgs_dir().join(crate::workspace::binpkg_cache_key(
+        &board.chost(),
+        &key,
+        &gcc_spec,
+    ));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -721,7 +752,6 @@ fn default_deps(
                  {cross_portage}/package.use/board"
             ))?;
         }
-
     }
 
     // Before the board's own list, not after: @world at this point is what
@@ -767,7 +797,12 @@ impl SeedSurvey {
         let vdb = target.dir.join("var/db/pkg");
         let mut mismatched = Vec::new();
         let Ok(cats) = std::fs::read_dir(&vdb) else {
-            return Self { total: 0, board: 0, other: None, mismatched };
+            return Self {
+                total: 0,
+                board: 0,
+                other: None,
+                mismatched,
+            };
         };
         for cat in cats.flatten() {
             let Ok(pkgs) = std::fs::read_dir(cat.path()) else {
@@ -792,10 +827,8 @@ impl SeedSurvey {
                     // tree -- =app-text/scdoc-1.11.5 was, and an atom nothing
                     // satisfies fails dependency resolution outright, which
                     // --keep-going cannot rescue because nothing has started.
-                    if let (Some(c), Some(p)) = (
-                        cat.file_name().to_str(),
-                        pkg.file_name().to_str(),
-                    ) {
+                    if let (Some(c), Some(p)) = (cat.file_name().to_str(), pkg.file_name().to_str())
+                    {
                         // Skip portage's half-merged `-MERGING-<pf>` dirs;
                         // they are not packages.
                         if !p.starts_with('-') {
@@ -810,7 +843,12 @@ impl SeedSurvey {
         let other = others.into_iter().max_by_key(|(_, n)| *n);
         mismatched.sort();
         mismatched.dedup();
-        Self { total, board, other, mismatched }
+        Self {
+            total,
+            board,
+            other,
+            mismatched,
+        }
     }
 
     /// Packages missing at least one of the board's flags.
@@ -890,14 +928,23 @@ fn rebuild_seed(runner: &SandboxRunner, target: &Target, board: &BoardConfig) ->
         // Nothing moved: the emerge died before it built anything.
         return result;
     }
-    let shown: Vec<&str> = after.mismatched.iter().map(String::as_str).take(12).collect();
+    let shown: Vec<&str> = after
+        .mismatched
+        .iter()
+        .map(String::as_str)
+        .take(12)
+        .collect();
     tracing::warn!(
         "Seed: {} of {} did not rebuild and keep the stage3's flags: {}{}. \
          They are still i686 and still run here; the ISA check decides that.",
         after.mismatched.len(),
         survey.mismatched.len(),
         shown.join(" "),
-        if after.mismatched.len() > shown.len() { " ..." } else { "" },
+        if after.mismatched.len() > shown.len() {
+            " ..."
+        } else {
+            ""
+        },
     );
     Ok(())
 }
@@ -966,9 +1013,7 @@ fn debootstrap_deps(
             tracing::info!("{provider} rootfs already provisioned, skipping debootstrap.");
             return Ok(());
         }
-        tracing::info!(
-            "Target was bootstrapped for a different ROOTFS_SECOND_STAGE, redoing it."
-        );
+        tracing::info!("Target was bootstrapped for a different ROOTFS_SECOND_STAGE, redoing it.");
     }
 
     let arch = crate::provider::dpkg_arch(&board.arch)
@@ -1299,8 +1344,7 @@ fn fedora_deps(
             ),
         }
     })?;
-    let extra =
-        read_distro_packages(&boards_root.join(&board.name).join("fedora-packages.txt"))?;
+    let extra = read_distro_packages(&boards_root.join(&board.name).join("fedora-packages.txt"))?;
     let mirror = board
         .fedora_mirror
         .as_deref()
@@ -2329,7 +2373,6 @@ fn os_config_systemd(runner: &SandboxRunner, board: &BoardConfig) -> Result<()> 
         );
     }
 
-
     if deferred {
         // Stage 1 unpacks only Priority:required, which contains no init on
         // either distribution, so /sbin/init is free and the kernel finds
@@ -2461,7 +2504,13 @@ pub fn build(
         // Other providers own /target -- no portage config is written into it.
         let board_cflags = board.effective_cflags();
         let gcc_spec = sandbox.gcc_spec_for(board, None)?;
-        target.prepare_portage_with_cflags(ws, sandbox, &board.chost(), &board_cflags, &gcc_spec)?;
+        target.prepare_portage_with_cflags(
+            ws,
+            sandbox,
+            &board.chost(),
+            &board_cflags,
+            &gcc_spec,
+        )?;
         let (canonical, _) = crate::cflags::canonicalize(&board_cflags);
         let hash = crate::cflags::toolchain_key(board);
         tracing::info!("Target make.conf CFLAGS={canonical:?} (key {hash})");
@@ -2473,8 +2522,11 @@ pub fn build(
         // load, the ABI check at the end of assemble says so against the image.
         let _ = crate::binpkg_meta::report(
             &board_binpkgs_dir(ws, sandbox, board)?,
-            &ws.store_dir()
-                .join(crate::workspace::store_key(&board.chost(), &hash, &gcc_spec)),
+            &ws.store_dir().join(crate::workspace::store_key(
+                &board.chost(),
+                &hash,
+                &gcc_spec,
+            )),
         );
     }
 
@@ -2584,40 +2636,20 @@ pub fn build(
                     None => Ok(()),
                 }
             }),
-            "checkout" => run_step(
-                "checkout",
-                d,
-                &bld,
-                &runner,
-                boards_root,
-                board,
-                |r| default_checkout(r, board, boards_root),
-            ),
-            "bootloader" => run_step(
-                "bootloader",
-                d,
-                &bld,
-                &runner,
-                boards_root,
-                board,
-                |r| default_bootloader(r, board),
-            ),
+            "checkout" => run_step("checkout", d, &bld, &runner, boards_root, board, |r| {
+                default_checkout(r, board, boards_root)
+            }),
+            "bootloader" => run_step("bootloader", d, &bld, &runner, boards_root, board, |r| {
+                default_bootloader(r, board)
+            }),
             "kernel" => run_step("kernel", d, &bld, &runner, boards_root, board, |r| {
                 default_kernel(r, board)
             }),
-            "assemble" => run_step(
-                "assemble",
-                d,
-                &bld,
-                &runner,
-                boards_root,
-                board,
-                |r| {
-                    let kernel_built = steps_to_run.contains(&"kernel")
-                        || bld.dir.join("linux").is_dir();
-                    default_assemble(r, board, &bld, ws, kernel_built)
-                },
-            ),
+            "assemble" => run_step("assemble", d, &bld, &runner, boards_root, board, |r| {
+                let kernel_built =
+                    steps_to_run.contains(&"kernel") || bld.dir.join("linux").is_dir();
+                default_assemble(r, board, &bld, ws, kernel_built)
+            }),
             "pack" => run_step("pack", d, &bld, &runner, boards_root, board, |r| {
                 default_pack(r, board, &bld, boards_root)
             }),
@@ -2838,8 +2870,10 @@ fn format_duration(d: std::time::Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{atom_cpn, buildroot_build_script, extlinux_conf, extlinux_fdt,
-                kernel_config_fragments, marker_for, step_inputs, Build, SeedSurvey};
+    use super::{
+        atom_cpn, buildroot_build_script, extlinux_conf, extlinux_fdt, kernel_config_fragments,
+        marker_for, step_inputs, Build, SeedSurvey,
+    };
     use crate::board::BoardConfig;
     use crate::target::Target;
     use camino::Utf8PathBuf;
@@ -2853,8 +2887,14 @@ mod tests {
             atom_cpn("app-text/docbook-xml-dtd-4.1.2-r7"),
             Some(("app-text", "docbook-xml-dtd"))
         );
-        assert_eq!(atom_cpn("net-dns/c-ares-1.34.6"), Some(("net-dns", "c-ares")));
-        assert_eq!(atom_cpn("=sys-libs/zlib-1.3.2-r1"), Some(("sys-libs", "zlib")));
+        assert_eq!(
+            atom_cpn("net-dns/c-ares-1.34.6"),
+            Some(("net-dns", "c-ares"))
+        );
+        assert_eq!(
+            atom_cpn("=sys-libs/zlib-1.3.2-r1"),
+            Some(("sys-libs", "zlib"))
+        );
         assert_eq!(
             atom_cpn("media-libs/gst-plugins-base"),
             Some(("media-libs", "gst-plugins-base"))
@@ -2867,7 +2907,6 @@ mod tests {
         board.kernel_config_fragments = fragments.iter().map(|s| s.to_string()).collect();
         board
     }
-
 
     // -- Step markers ------------------------------------------------------
     //
@@ -3145,7 +3184,10 @@ mod tests {
                 std::fs::write(pkg.join("CFLAGS"), flags).unwrap();
             }
         }
-        Target { dir, arch: "i686".into() }
+        Target {
+            dir,
+            arch: "i686".into(),
+        }
     }
 
     /// The measurement that named the problem: a dell-dimension-4100 target
@@ -3158,7 +3200,10 @@ mod tests {
                 ("sys-apps/nocflags-1", ""),
                 ("sys-apps/coreutils-9", "-O2 -march=i686 -pipe"),
                 ("sys-apps/sed-4", "-O2 -march=i686 -pipe"),
-                ("sys-libs/zlib-1", "-O2 -march=i686 -pipe -fno-strict-aliasing"),
+                (
+                    "sys-libs/zlib-1",
+                    "-O2 -march=i686 -pipe -fno-strict-aliasing",
+                ),
                 ("app-misc/fastfetch-2", "-O2 -march=pentium3 -pipe"),
             ],
         );
@@ -3166,10 +3211,7 @@ mod tests {
         assert_eq!(survey.total, 5);
         assert_eq!(survey.board, 1);
         assert_eq!(survey.foreign(), 4);
-        assert_eq!(
-            survey.other,
-            Some(("-O2 -march=i686 -pipe".to_string(), 2))
-        );
+        assert_eq!(survey.other, Some(("-O2 -march=i686 -pipe".to_string(), 2)));
     }
 
     /// Ebuilds add flags of their own around the board's.  Such a package
@@ -3181,8 +3223,14 @@ mod tests {
             "seed-survey-extra",
             &[
                 ("sys-apps/skipped-1", ""),
-                ("sys-libs/glibc-2", "-O2 -march=pentium3 -pipe -fno-strict-aliasing"),
-                ("sys-apps/util-linux-2", "-O2 -march=pentium3 -pipe -std=gnu17"),
+                (
+                    "sys-libs/glibc-2",
+                    "-O2 -march=pentium3 -pipe -fno-strict-aliasing",
+                ),
+                (
+                    "sys-apps/util-linux-2",
+                    "-O2 -march=pentium3 -pipe -std=gnu17",
+                ),
             ],
         );
         let survey = SeedSurvey::of(&target, "-O2 -march=pentium3 -pipe");

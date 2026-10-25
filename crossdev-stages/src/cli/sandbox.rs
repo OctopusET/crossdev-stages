@@ -70,7 +70,10 @@ pub async fn run(
             }
             tracing::info!("Updating the sandbox's own packages...");
             portage.update_world()?;
-            println!("Sandbox {} updated.", sb.dir.file_name().unwrap_or_default());
+            println!(
+                "Sandbox {} updated.",
+                sb.dir.file_name().unwrap_or_default()
+            );
         }
         SandboxCmd::Enter { name } => {
             let dir = ws.resolve_sandbox(name.as_deref())?;

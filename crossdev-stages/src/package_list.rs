@@ -239,7 +239,9 @@ mod overlay_tests {
         let entries = parse("sys-boot/syslinux **\ndev-libs/foo\n");
         let script = accept_keywords_script(&entries, "/usr/riscv64-unknown-linux-gnu/etc/portage")
             .expect("a keyword line should produce a script");
-        assert!(script.contains("mkdir -p /usr/riscv64-unknown-linux-gnu/etc/portage/package.accept_keywords"));
+        assert!(script.contains(
+            "mkdir -p /usr/riscv64-unknown-linux-gnu/etc/portage/package.accept_keywords"
+        ));
         assert!(script.contains("sys-boot/syslinux **"));
         assert!(script.contains("package.accept_keywords/sys-boot_syslinux"));
         // A line with no keyword field asks for nothing and writes nothing.

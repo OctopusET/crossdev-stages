@@ -60,9 +60,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Maint(cmd) => {
             cli::maint::run(&ws, cmd, &boards_root, dry_run)?;
         }
-        Commands::Chroot { board, cmd } => {
-            cli::chroot::run(&ws, &boards_root, &board, &cmd)?
-        }
+        Commands::Chroot { board, cmd } => cli::chroot::run(&ws, &boards_root, &board, &cmd)?,
 
         Commands::Enter {
             board,

@@ -83,9 +83,9 @@ pub struct BoardConfig {
 
     // Firmware overlay
     pub firmware_repo: Option<String>,
-    pub firmware_tag: Option<String>,     // FIRMWARE_TAG; falls back to TAG
+    pub firmware_tag: Option<String>, // FIRMWARE_TAG; falls back to TAG
     pub firmware_overlay: Option<String>, // path inside firmware repo, contents -> /lib/firmware
-    pub firmware_dirs: Vec<String>,       // dirs inside firmware repo, path preserved
+    pub firmware_dirs: Vec<String>,   // dirs inside firmware repo, path preserved
 
     // Kernel
     pub kernel_repo: String,
@@ -259,9 +259,7 @@ fn duplicate_keys(content: &str, path: &Utf8Path) -> Result<()> {
         // CFLAGS strings, so "-O3 -march=rv64gc -pipe" reads as an
         // assignment to `"-O3 -march`.  Only a shell variable name is one.
         if key.is_empty()
-            || !key
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             || key.starts_with(|c: char| c.is_ascii_digit())
         {
             continue;
@@ -706,11 +704,12 @@ mod tests {
     #[test]
     fn only_the_gentoo_provider_takes_the_key() {
         for provider in ["debian", "alpine", "fedora", "buildroot", "none"] {
-            let conf = format!(
-                "ROOTFS_PROVIDER=\"{provider}\"\nROOTFS_REBUILD=\"world\"\n"
-            );
+            let conf = format!("ROOTFS_PROVIDER=\"{provider}\"\nROOTFS_REBUILD=\"world\"\n");
             let err = parse_conf(&conf).unwrap_err();
-            assert!(err.to_string().contains("gentoo provider"), "{provider}: {err}");
+            assert!(
+                err.to_string().contains("gentoo provider"),
+                "{provider}: {err}"
+            );
         }
     }
 
@@ -718,8 +717,7 @@ mod tests {
     /// silently would teach a board that the key applies when it does not.
     #[test]
     fn even_none_is_refused_on_another_provider() {
-        let err = parse_conf("ROOTFS_PROVIDER=\"debian\"\nROOTFS_REBUILD=\"none\"\n")
-            .unwrap_err();
+        let err = parse_conf("ROOTFS_PROVIDER=\"debian\"\nROOTFS_REBUILD=\"none\"\n").unwrap_err();
         assert!(err.to_string().contains("ROOTFS_REBUILD"), "{err}");
     }
 

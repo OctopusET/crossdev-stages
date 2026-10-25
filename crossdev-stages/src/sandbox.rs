@@ -28,7 +28,11 @@ impl Sandbox {
         let arch = std::fs::read_to_string(dir.join(".arch"))
             .map(|s| s.trim().to_string())
             .map_err(|_| Error::SandboxNotFound(dir.to_string()))?;
-        Ok(Self { dir, arch, host_chost: Default::default() })
+        Ok(Self {
+            dir,
+            arch,
+            host_chost: Default::default(),
+        })
     }
 
     /// Create a new sandbox by unpacking a stage3 source tarball (catalyst: `source_path`).
@@ -56,7 +60,12 @@ impl Sandbox {
     /// With `bare`, writes `make.conf` and syncs the portage tree but does not
     /// emerge packages.  The `crossdev-stages` overlay is not installed here:
     /// see [`Sandbox::install_overlay`].
-    pub fn prepare(&self, mirror: Option<&str>, defaults_root: &Utf8Path, bare: bool) -> Result<()> {
+    pub fn prepare(
+        &self,
+        mirror: Option<&str>,
+        defaults_root: &Utf8Path,
+        bare: bool,
+    ) -> Result<()> {
         if self.dir.join(".prepared").exists() {
             tracing::info!("Sandbox already prepared, skipping.");
             return Ok(());
@@ -571,9 +580,7 @@ EOF
         if self.is_own_chost(chost)? {
             return Ok(self.runner());
         }
-        let store_dir = ws
-            .store_dir()
-            .join(store_key(chost, cflags_hash, gcc_spec));
+        let store_dir = ws.store_dir().join(store_key(chost, cflags_hash, gcc_spec));
         if !store_dir.join(".complete").exists() {
             return Err(Error::CommandFailed {
                 code: 1,
