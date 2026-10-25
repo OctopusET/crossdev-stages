@@ -255,6 +255,9 @@ impl Target {
             portage.cross_emerge_crossdev(chost, &["--noreplace", &gcc_atom])?;
             portage.cross_emerge_crossdev(chost, &["sys-libs/binutils-libs"])?;
             portage.cross_emerge_crossdev(chost, &["-u", "system"])?;
+            // `-e @world` below re-merges into this prefix, so say now, not
+            // a thousand lines in, if a killed build left it half-merged.
+            portage.check_prefix_vdb(chost)?;
         }
 
         tracing::info!("Rebuilding @world in target…");

@@ -1,7 +1,7 @@
 use camino::Utf8Path;
 
 use crate::container::SandboxRunner;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::stage::{all_llvm_targets, default_cflags, gentoo_arch, llvm_target};
 
 /// Single supported llvm slot; dev-lang/rust-1.95.0 has `LLVM_COMPAT=( 22 )`.
@@ -283,6 +283,46 @@ impl<'a> Portage<'a> {
     /// to stdout; the compiler output only ever reaches PORT_LOGDIR.  That
     /// directory is owned by the sandbox uid and mode 0770, so it cannot be
     /// read from the host either -- the tail has to be taken from inside.
+    /// Refuse to emerge into a prefix whose VDB portage will call corrupted.
+    ///
+    /// Killing a build during a merge leaves the overlay upper with every
+    /// file of that package's VDB entry whited out and the finished
+    /// `-MERGING-` copy sitting beside it.  Portage then finds no COUNTER,
+    /// concludes the package is not installed, sees its headers on disk
+    /// owned by nobody, and refuses to overwrite them.  It says so as a
+    /// thousand-line collision list under one `Failed to install`, which is
+    /// a long way from "a previous build was killed".  Say it here, first.
+    pub fn check_prefix_vdb(&self, chost: &str) -> Result<()> {
+        let vdb = format!("/usr/{chost}/var/db/pkg");
+        let broken = self.runner.run_output(&format!(
+            "[ -d {vdb} ] || exit 0
+             find {vdb} -mindepth 2 -maxdepth 2 -type d -printf '%P\\n' |
+             while read -r d; do
+                 case ${{d##*/}} in
+                     -MERGING-*) echo \"$d\" ;;
+                     *) [ -s {vdb}/\"$d\"/COUNTER ] || echo \"$d\" ;;
+                 esac
+             done | sort"
+        ))?;
+        let names: Vec<&str> = broken.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        if names.is_empty() {
+            return Ok(());
+        }
+        Err(Error::CommandFailed {
+            code: 1,
+            reason: format!(
+                "the {chost} prefix has {} half-merged VDB entries: {}. \
+                 A build was killed mid-merge; portage will call them corrupted \
+                 and refuse to reinstall those packages over their own files. \
+                 Repair each by renaming its `-MERGING-<pkg>` to `<pkg>`, or by \
+                 removing the whiteout char devices under the sandbox's \
+                 .overlay-upper-{chost}-* so the store's entry shows through.",
+                names.len(),
+                names.join(", "),
+            ),
+        })
+    }
+
     fn run_emerge(&self, cmd: &str) -> Result<()> {
         let result = self.runner.run(cmd);
         if result.is_err() {
