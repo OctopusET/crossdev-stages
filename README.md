@@ -75,6 +75,11 @@ crossdev-stages sandbox setup
 crossdev-stages sandbox prepare
 crossdev-stages sandbox crossdev --arch <ARCH> --board <BOARD>
 
+# A board the host CPU runs natively (i686 on x86-64, aarch64 on aarch64)
+# is built in a sandbox of its own arch, with no cross toolchain
+crossdev-stages sandbox setup --arch i686 --name i686
+crossdev-stages image build --board dell-dimension-4100 --sandbox i686
+
 # Create target stage from a stage3 seed
 # (--board decides CHOST, CFLAGS and gcc, so the work lands in the same
 #  toolchain store and binary package cache that board's image build reads,

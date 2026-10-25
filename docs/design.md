@@ -77,6 +77,23 @@ build environment for cross-compilation.  Provides:
 
 All operations are idempotent via marker files.
 
+A board whose CHOST is the sandbox's own needs no cross toolchain:
+gcc-config and binutils-config already provide `<chost>-gcc`, `-ld`,
+`-readelf` and `-pkg-config`, the names the rest of the tree uses, so
+`setup_crossdev` only writes a `<chost>-emerge` that points portage at
+/target's config.  That covers an aarch64 host building an aarch64 board,
+and an i686 sandbox (`sandbox setup --arch i686`, from stage3-i686) building
+a Pentium III.  `/usr/<chost>` is then gcc-config's own directory and no
+store is mounted over it.
+
+An i686 board cannot be built from an amd64 sandbox instead.  crossdev
+refuses `i686-pc-linux-gnu` there because it is the profile's `CHOST_x86`,
+and `gcc -m32` is no way around it: that links the 32-bit multilib
+startfiles, which the amd64 profile builds with `-mfpmath=sse`, so every
+binary is marked as needing x86-64-baseline (SSE2) and glibc refuses to load
+it on a Pentium III.  `--sysroot` and `-B` do not redirect the startfiles.
+i586 and i486 tuples are not host tuples, so crossdev builds those as usual.
+
 ### `Target`
 
 The cross-compiled Gentoo root filesystem for the target arch.  Stored
@@ -490,6 +507,10 @@ is written down rather than rediscovered:
   `sandbox prepare` (required).
 - `defaults/target-packages.txt` — packages cross-emerged into every
   image's sysroot during `deps` (required).
+- `defaults/sandbox-packages.<arch>.txt` / `.use`: merged over the
+  sandbox list for a sandbox of that arch (optional).  The base list
+  assumes amd64: on i686 `dev-lang/rust` refuses a profile without SSE2 and
+  `sys-fs/genimage` has no x86 keyword.
 
 Per-board lists (`boards/<name>/sandbox-packages.txt`, `target-packages.txt`)
 overlay the defaults.  The effective target set is
